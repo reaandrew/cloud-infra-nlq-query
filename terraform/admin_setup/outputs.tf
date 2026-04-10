@@ -8,11 +8,6 @@ output "state_bucket_arn" {
   value       = "arn:aws:s3:::${var.state_bucket_name}"
 }
 
-output "dynamodb_table_name" {
-  description = "Name of the DynamoDB table for state locking"
-  value       = var.dynamodb_table_name
-}
-
 output "ci_role_arn" {
   description = "ARN of the CI IAM role"
   value       = aws_iam_role.ci_role.arn

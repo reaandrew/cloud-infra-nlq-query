@@ -8,10 +8,10 @@ terraform {
   }
 
   backend "s3" {
-    bucket         = "cloud-infra-nlp-query-tfstate"
-    key            = "admin/terraform.tfstate"
-    region         = "eu-west-2"
-    dynamodb_table = "cloud-infra-nlp-query-terraform-state-lock"
+    bucket       = "cloud-infra-nlq-query-tfstate"
+    key          = "admin/terraform.tfstate"
+    region       = "eu-west-2"
+    use_lockfile = true
   }
 }
 
@@ -38,9 +38,9 @@ resource "aws_iam_role" "ci_role" {
           }
           StringLike = {
             "token.actions.githubusercontent.com:sub" = [
-              "repo:reaandrew/cloud-infra-nlp-query:ref:refs/heads/main",
-              "repo:reaandrew/cloud-infra-nlp-query:ref:refs/heads/feature/*",
-              "repo:reaandrew/cloud-infra-nlp-query:ref:refs/tags/*"
+              "repo:reaandrew/cloud-infra-nlq-query:ref:refs/heads/main",
+              "repo:reaandrew/cloud-infra-nlq-query:ref:refs/heads/feature/*",
+              "repo:reaandrew/cloud-infra-nlq-query:ref:refs/tags/*"
             ]
           }
         }
@@ -68,15 +68,6 @@ resource "aws_iam_role_policy" "ci_policy" {
           "arn:aws:s3:::${var.state_bucket_name}",
           "arn:aws:s3:::${var.state_bucket_name}/*"
         ]
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "dynamodb:GetItem",
-          "dynamodb:PutItem",
-          "dynamodb:DeleteItem"
-        ]
-        Resource = "arn:aws:dynamodb:${var.aws_region}:889772146711:table/${var.dynamodb_table_name}"
       },
       {
         Effect = "Allow"

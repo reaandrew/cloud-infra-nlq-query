@@ -44,7 +44,7 @@ Package Lambda functions individually (only needed for manual testing):
 
 Invoke the refresh_docs_data Lambda to start the processing pipeline:
 ```bash
-aws-vault exec ee-sandbox -- aws lambda invoke --function-name cloud-infra-nlp-query-refresh-docs --payload '{}' --log-type Tail --query 'LogResult' --output text response.json | base64 -d
+aws-vault exec ee-sandbox -- aws lambda invoke --function-name cloud-infra-nlq-query-refresh-docs --payload '{}' --log-type Tail --query 'LogResult' --output text response.json | base64 -d
 ```
 
 This starts the entire workflow:
@@ -57,9 +57,9 @@ This starts the entire workflow:
 
 Check CloudWatch logs for each Lambda:
 ```bash
-aws-vault exec ee-sandbox -- aws logs get-log-events --log-group-name /aws/lambda/cloud-infra-nlp-query-refresh-docs --limit 20
-aws-vault exec ee-sandbox -- aws logs get-log-events --log-group-name /aws/lambda/cloud-infra-nlp-query-chunk-config --limit 20
-aws-vault exec ee-sandbox -- aws logs get-log-events --log-group-name /aws/lambda/cloud-infra-nlp-query-fetch-vectors --limit 20
+aws-vault exec ee-sandbox -- aws logs get-log-events --log-group-name /aws/lambda/cloud-infra-nlq-query-refresh-docs --limit 20
+aws-vault exec ee-sandbox -- aws logs get-log-events --log-group-name /aws/lambda/cloud-infra-nlq-query-chunk-config --limit 20
+aws-vault exec ee-sandbox -- aws logs get-log-events --log-group-name /aws/lambda/cloud-infra-nlq-query-fetch-vectors --limit 20
 ```
 
 View data in S3 buckets:
@@ -102,7 +102,7 @@ The project uses a multi-environment Terraform structure:
 - **cinq-config-specs** - Stores AWS Config resource specifications
 - **cinq-config-spec-chunks** - Stores chunked Config resources
 - **cinq-config-vectors** - Stores vector embeddings
-- **cloud-infra-nlp-query-config-docs** - Stores documentation
+- **cloud-infra-nlq-query-config-docs** - Stores documentation
 
 ## Development Workflow
 

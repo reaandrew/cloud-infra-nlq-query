@@ -8,10 +8,10 @@ terraform {
   }
 
   backend "s3" {
-    bucket         = "cloud-infra-nlp-query-tfstate"
-    key            = "app/terraform.tfstate"
-    region         = "eu-west-2"
-    dynamodb_table = "cloud-infra-nlp-query-terraform-state-lock"
+    bucket       = "cloud-infra-nlq-query-tfstate"
+    key          = "app/terraform.tfstate"
+    region       = "eu-west-2"
+    use_lockfile = true
   }
 }
 
@@ -183,7 +183,7 @@ resource "aws_iam_role_policy" "lambda_policy" {
 # Lambda function for executing Config queries
 resource "aws_lambda_function" "config_query" {
   filename         = "lambda/config_query.zip"
-  function_name    = "cloud-infra-nlp-query-config-query"
+  function_name    = "cloud-infra-nlq-query-config-query"
   role            = aws_iam_role.lambda_role.arn
   handler         = "index.handler"
   runtime         = "nodejs18.x"
@@ -206,7 +206,7 @@ resource "aws_lambda_function" "config_query" {
 # Lambda function for refreshing documentation
 resource "aws_lambda_function" "refresh_docs_data" {
   filename         = "lambda/refresh_docs_data.zip"
-  function_name    = "cloud-infra-nlp-query-refresh-docs"
+  function_name    = "cloud-infra-nlq-query-refresh-docs"
   role            = aws_iam_role.lambda_role.arn
   handler         = "lambda_function.lambda_handler"
   runtime         = "python3.12"
@@ -371,7 +371,7 @@ resource "aws_iam_role_policy" "chunk_lambda_policy" {
 
 resource "aws_lambda_function" "chunk_config" {
   filename         = "lambda/chunk_config_spec.zip"
-  function_name    = "cloud-infra-nlp-query-chunk-config"
+  function_name    = "cloud-infra-nlq-query-chunk-config"
   role             = aws_iam_role.chunk_lambda_role.arn
   handler          = "index.handler"
   runtime          = "nodejs18.x"
@@ -485,7 +485,7 @@ resource "aws_iam_role_policy" "fetch_vectors_policy" {
 # Lambda function for fetching vectors/events from chunks
 resource "aws_lambda_function" "fetch_vectors" {
   filename         = "lambda/fetch_vectors.zip"
-  function_name    = "cloud-infra-nlp-query-fetch-vectors"
+  function_name    = "cloud-infra-nlq-query-fetch-vectors"
   role             = aws_iam_role.fetch_vectors_role.arn
   handler          = "index.handler"
   runtime          = "nodejs18.x"
@@ -681,7 +681,7 @@ resource "aws_iam_role_policy" "load_vectors_policy" {
 # Lambda function for loading vectors into OpenSearch
 resource "aws_lambda_function" "load_vectors_opensearch" {
   filename         = "lambda/load_vectors_to_opensearch.zip"
-  function_name    = "cloud-infra-nlp-query-load-vectors-opensearch"
+  function_name    = "cloud-infra-nlq-query-load-vectors-opensearch"
   role             = aws_iam_role.load_vectors_role.arn
   handler          = "index.handler"
   runtime          = "nodejs18.x"

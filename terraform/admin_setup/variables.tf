@@ -7,22 +7,17 @@ variable "aws_region" {
 variable "state_bucket_name" {
   description = "Name of the S3 bucket for Terraform state"
   type        = string
-}
-
-variable "dynamodb_table_name" {
-  description = "Name of the DynamoDB table for state locking"
-  type        = string
-  default     = "terraform-state-lock"
+  default     = "cloud-infra-nlq-query-tfstate"
 }
 
 variable "ci_role_name" {
   description = "Name of the CI IAM role"
   type        = string
-  default     = "cloud-infra-nlp-query-ci-role"
+  default     = "cloud-infra-nlq-query-ci-role"
 }
 
 variable "app_name" {
   description = "Name of the application"
   type        = string
-  default     = "cloud-infra-nlp-query"
-} 
+  default     = "cloud-infra-nlq-query"
+}

@@ -37,4 +37,11 @@ terraform.rc
 .idea/
 .vscode/
 *.swp
-*.swo .terraform.lock.hcl
+*.swo
+.terraform.lock.hcl
+
+# Fetched AWS Config resource schemas (pulled from awslabs/aws-config-resource-schema)
+data/config_resource_schemas/
+
+# Pre-generated AWS event schemas (regenerate via scripts/generate_aws_event_schemas.sh)
+data/aws_event_schemas/

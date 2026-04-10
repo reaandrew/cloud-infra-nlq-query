@@ -1,0 +1,65 @@
+{
+  "profiles": {
+    "compute": {
+      "description": "EC2/EBS/EFS/RDS/Lambda/S3 compute workload with IAM, KMS, and networking. VPC/Subnet/SecurityGroup come from the infra pool automatically.",
+      "types": {
+        "AWS::EC2::Instance": 12,
+        "AWS::EC2::Volume": 18,
+        "AWS::EC2::NetworkInterface": 14,
+        "AWS::RDS::DBInstance": 4,
+        "AWS::RDS::DBSnapshot": 6,
+        "AWS::RDS::DBSubnetGroup": 2,
+        "AWS::EFS::FileSystem": 3,
+        "AWS::Lambda::Function": 10,
+        "AWS::S3::Bucket": 8,
+        "AWS::KMS::Key": 5,
+        "AWS::IAM::Role": 8,
+        "AWS::IAM::Policy": 6
+      }
+    },
+    "data": {
+      "description": "Data platform: RDS, DynamoDB, S3, Kinesis, Glue, and KMS.",
+      "types": {
+        "AWS::RDS::DBInstance": 6,
+        "AWS::RDS::DBSnapshot": 8,
+        "AWS::DynamoDB::Table": 10,
+        "AWS::S3::Bucket": 15,
+        "AWS::Kinesis::Stream": 4,
+        "AWS::KinesisFirehose::DeliveryStream": 3,
+        "AWS::Glue::Job": 4,
+        "AWS::Glue::Classifier": 2,
+        "AWS::KMS::Key": 6,
+        "AWS::IAM::Role": 6,
+        "AWS::IAM::Policy": 4
+      }
+    },
+    "security": {
+      "description": "IAM, KMS, SecretsManager, GuardDuty, CloudTrail, Config.",
+      "types": {
+        "AWS::IAM::Role": 15,
+        "AWS::IAM::Policy": 12,
+        "AWS::IAM::User": 6,
+        "AWS::IAM::Group": 4,
+        "AWS::KMS::Key": 10,
+        "AWS::SecretsManager::Secret": 12,
+        "AWS::GuardDuty::Detector": 1,
+        "AWS::CloudTrail::Trail": 2,
+        "AWS::Config::ConfigurationRecorder": 1
+      }
+    },
+    "networking": {
+      "description": "Networking-focused: NAT gateways, route tables, endpoints, load balancers.",
+      "types": {
+        "AWS::EC2::NetworkInterface": 20,
+        "AWS::EC2::NatGateway": 4,
+        "AWS::EC2::RouteTable": 6,
+        "AWS::EC2::VPCEndpoint": 5,
+        "AWS::EC2::EIP": 6,
+        "AWS::ElasticLoadBalancingV2::LoadBalancer": 3,
+        "AWS::ElasticLoadBalancingV2::Listener": 6,
+        "AWS::Route53::HostedZone": 3,
+        "AWS::Route53Resolver::ResolverRule": 2
+      }
+    }
+  }
+}

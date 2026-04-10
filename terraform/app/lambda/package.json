@@ -1,9 +1,0 @@
-{
-    "name": "event-processor",
-    "version": "1.0.0",
-    "description": "AWS Event Processor Lambda Function",
-    "main": "index.js",
-    "dependencies": {
-        "@aws-sdk/client-eventbridge": "^3.0.0"
-    }
-}

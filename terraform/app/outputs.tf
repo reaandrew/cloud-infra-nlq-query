@@ -1,0 +1,44 @@
+output "extract_queue_url" {
+  description = "SQS queue URL that receives S3 events from the mock bucket"
+  value       = aws_sqs_queue.extract.id
+}
+
+output "extract_queue_arn" {
+  description = "SQS queue ARN for the extract pipeline"
+  value       = aws_sqs_queue.extract.arn
+}
+
+output "extract_dlq_url" {
+  description = "Dead-letter queue for failed extract Lambda invocations"
+  value       = aws_sqs_queue.extract_dlq.id
+}
+
+output "operational_bucket" {
+  description = "S3 bucket holding the Iceberg table data and metadata"
+  value       = aws_s3_bucket.config.bucket
+}
+
+output "mock_bucket" {
+  description = "S3 bucket that receives raw gzipped AWS Config snapshots"
+  value       = aws_s3_bucket.config_mock.bucket
+}
+
+output "athena_results_bucket" {
+  description = "S3 bucket for Athena query result staging"
+  value       = aws_s3_bucket.athena_results.bucket
+}
+
+output "glue_database" {
+  description = "Glue Data Catalog database holding the Iceberg table"
+  value       = aws_glue_catalog_database.cinq.name
+}
+
+output "iceberg_table" {
+  description = "Fully qualified Iceberg table name"
+  value       = "${aws_glue_catalog_database.cinq.name}.${var.iceberg_table_name}"
+}
+
+output "iceberg_live_view" {
+  description = "Fully qualified Athena view applying the TTL / freshness filter"
+  value       = "${aws_glue_catalog_database.cinq.name}.${var.iceberg_view_name}"
+}

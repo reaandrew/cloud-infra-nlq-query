@@ -47,6 +47,58 @@ resource "aws_s3_bucket_versioning" "config_mock" {
   }
 }
 
+resource "aws_s3_bucket_lifecycle_configuration" "config_mock" {
+  bucket = aws_s3_bucket.config_mock.id
+
+  rule {
+    id     = "expire-snapshots"
+    status = "Enabled"
+
+    filter {
+      prefix = ""
+    }
+
+    expiration {
+      days = var.mock_retention_days
+    }
+
+    noncurrent_version_expiration {
+      noncurrent_days = var.mock_noncurrent_retention_days
+    }
+
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 1
+    }
+  }
+}
+
+# S3 bucket for Athena query results (required by Athena; kept separate from operational data)
+resource "aws_s3_bucket" "athena_results" {
+  bucket        = "${var.app_name}-athena-results"
+  force_destroy = true
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "athena_results" {
+  bucket = aws_s3_bucket.athena_results.id
+
+  rule {
+    id     = "expire-results"
+    status = "Enabled"
+
+    filter {
+      prefix = ""
+    }
+
+    expiration {
+      days = 7
+    }
+
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 1
+    }
+  }
+}
+
 # VPC
 resource "aws_vpc" "main" {
   cidr_block           = var.vpc_cidr

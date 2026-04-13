@@ -273,6 +273,8 @@ def main():
     p.add_argument("--region", default=DEFAULT_REGION)
     p.add_argument("--workgroup", default=DEFAULT_WORKGROUP)
     p.add_argument("--max-output-tokens", type=int, default=DEFAULT_MAX_OUTPUT_TOKENS)
+    p.add_argument("--timings", action="store_true",
+                   help="Print per-stage wall-clock timings at the end")
     args = p.parse_args()
 
     question = args.question or args.q_flag
@@ -302,11 +304,18 @@ def main():
     )
     athena = boto3.client("athena", region_name=args.region)
 
+    timings: dict[str, float] = {}
+    t0 = time.time()
+
     # 1. embed
+    t = time.time()
     qvec = embed_question(bedrock, embed_model, embed_dims, question)
+    timings["embed_ms"] = (time.time() - t) * 1000
 
     # 2. retrieve
+    t = time.time()
     matches = retrieve_schemas(s3v, bucket, index, qvec, args.top_k)
+    timings["retrieve_ms"] = (time.time() - t) * 1000
     if not matches:
         print("no schema matches found in S3 Vectors index", file=sys.stderr)
         sys.exit(1)
@@ -337,7 +346,9 @@ def main():
         row_limit=DEFAULT_RESULT_PRINT_LIMIT,
     )
 
+    t = time.time()
     raw_response = generate_sql(bedrock, chat_model, system_prompt, question, args.max_output_tokens)
+    timings["generate_ms"] = (time.time() - t) * 1000
     sql = extract_sql(raw_response)
     print("generated SQL:")
     print("─" * 60)
@@ -353,11 +364,29 @@ def main():
 
     if args.dry_run:
         print("(dry-run; not executing)")
+        timings["total_ms"] = (time.time() - t0) * 1000
+        if args.timings:
+            print()
+            print_timings(timings)
         return
 
+    t = time.time()
     qid = run_athena(athena, sql, database, args.workgroup, results_bucket)
     headers, rows = fetch_results(athena, qid)
+    timings["athena_ms"] = (time.time() - t) * 1000
     print_table(headers, rows)
+
+    timings["total_ms"] = (time.time() - t0) * 1000
+    if args.timings:
+        print()
+        print_timings(timings)
+
+
+def print_timings(t: dict[str, float]) -> None:
+    print("phase timings:")
+    for label in ("embed_ms", "retrieve_ms", "generate_ms", "athena_ms", "total_ms"):
+        if label in t:
+            print(f"  {label.replace('_ms','').ljust(10)} {t[label]:>8.1f} ms")
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 .PHONY: init deploy clean bootstrap fetch-schemas generate-mock unpack-mock \
-        package-extract package-compact package-lambdas test-pipeline help
+        package-extract package-compact package-lambdas test-pipeline \
+        enrich-schemas index-schemas nlq help
 
 # Knobs (override on the command line, e.g. `make generate-mock ACCOUNTS=50`)
 AWS_REGION      ?= eu-west-2
@@ -73,6 +74,29 @@ bootstrap: generate-mock
 test-pipeline: generate-mock
 	./scripts/test_pipeline.sh $(TEST_TIMEOUT)
 
+# ---- Phase 2: schema RAG ----
+
+# One-off Claude enrichment of every raw resource schema into a semantic
+# Markdown doc. Idempotent — re-runs skip files that already exist unless
+# you pass FORCE=1.
+enrich-schemas:
+	@echo "Enriching $(SCHEMAS_DIR) into data/enriched_schemas/..."
+	./scripts/enrich_schemas.py $(if $(FORCE),--force) $(if $(LIMIT),--limit $(LIMIT))
+
+# One-off Titan embedding of every enriched doc, upserted into S3 Vectors.
+index-schemas:
+	@echo "Embedding enriched schemas and upserting into S3 Vectors..."
+	./scripts/index_schemas.py
+
+# Natural-language query CLI. Pass Q="..." for the question.
+# Examples:
+#   make nlq Q="how many EC2 instances per account, top 10"
+#   make nlq Q="find encrypted EBS volumes" NLQ_ARGS="--explain --top-k 8"
+#   make nlq Q="drop the operational table" NLQ_ARGS="--dry-run"
+nlq:
+	@if [ -z "$(Q)" ]; then echo 'usage: make nlq Q="<question>" [NLQ_ARGS="..."]'; exit 2; fi
+	./scripts/nlq.py $(NLQ_ARGS) "$(Q)"
+
 clean:
 	@echo "Cleaning up..."
 	rm -f terraform/app/.terraform.lock.hcl
@@ -88,6 +112,9 @@ help:
 	@echo "  bootstrap      - fetch-schemas + generate-mock (pipeline processes asynchronously)"
 	@echo "  test-pipeline  - generate-mock + wait for SQS drain + assert rows via Athena"
 	@echo "  unpack-mock    - Dev-time local unpack (pre-pipeline workflow)"
+	@echo "  enrich-schemas - One-off Claude enrichment of raw schemas (FORCE=1, LIMIT=N)"
+	@echo "  index-schemas  - Embed enriched schemas with Titan, upsert into S3 Vectors"
+	@echo "  nlq            - Run an NL question. Usage: make nlq Q='<question>' [NLQ_ARGS='--explain --dry-run']"
 	@echo "  clean          - Remove local Terraform state/cache and build artifacts"
 	@echo "  all            - Run init and deploy"
 	@echo ""

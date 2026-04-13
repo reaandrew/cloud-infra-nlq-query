@@ -42,3 +42,28 @@ output "iceberg_live_view" {
   description = "Fully qualified Athena view applying the TTL / freshness filter"
   value       = "${aws_glue_catalog_database.cinq.name}.${var.iceberg_view_name}"
 }
+
+output "schemas_vector_bucket" {
+  description = "S3 Vectors bucket holding the resource-type schema embeddings"
+  value       = var.schemas_vector_bucket
+}
+
+output "schemas_vector_index" {
+  description = "S3 Vectors index name inside the schemas vector bucket"
+  value       = var.schemas_vector_index
+}
+
+output "embedding_model_id" {
+  description = "Bedrock model used for schema and question embeddings"
+  value       = var.embedding_model_id
+}
+
+output "chat_model_id" {
+  description = "Bedrock model used for NL → SQL generation"
+  value       = var.chat_model_id
+}
+
+output "embedding_dimensions" {
+  description = "Embedding vector dimensionality"
+  value       = var.embedding_dimensions
+}

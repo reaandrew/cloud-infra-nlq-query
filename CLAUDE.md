@@ -7,6 +7,14 @@ into an Iceberg table in a Glue Data Catalog, queryable via Athena. Rows land in
 seconds after a snapshot is uploaded; stale rows drop out of the operational view
 within a configurable TTL window.
 
+A natural-language query layer sits on top: 417 AWS Config resource-type schemas
+have been Claude-enriched into semantic Markdown docs, embedded with Titan, and
+indexed in **AWS S3 Vectors**. The `scripts/nlq.py` CLI takes a natural-language
+question, retrieves the most relevant schemas, asks Claude Sonnet 4.6 (Bedrock)
+to generate a single Athena SELECT, and runs it against the Iceberg table.
+Bedrock AgentCore is **not** used — orchestration is all in the CLI script
+because the client org doesn't permit AgentCore.
+
 ## Architecture
 
 ```
@@ -133,6 +141,14 @@ make generate-mock ACCOUNTS=50 PROFILE=compute
 - **scripts/test_pipeline.sh** — end-to-end test driver invoked by
   `make test-pipeline`; reads terraform outputs, waits for SQS to drain,
   queries Athena for snapshot count + live view stats
+- **scripts/enrich_schemas.py** — one-off Claude enrichment of every raw
+  schema in `data/config_resource_schemas/` into a semantic Markdown doc
+  under `data/enriched_schemas/`. Idempotent. ~$10 one-off Bedrock spend.
+- **scripts/index_schemas.py** — one-off Titan embedding + S3 Vectors
+  upsert of every enriched doc. ~5¢ one-off.
+- **scripts/nlq.py** — runtime NL→SQL CLI: embeds question, retrieves
+  top-K schemas from S3 Vectors, asks Claude for SQL, validates SELECT-only,
+  runs against Athena, prints results. Reads infra coords from terraform outputs.
 - **scripts/export_config_to_parquet.py**, **scripts/unpack_config_snapshots.py**
   — local dev-time alternatives to the pipeline. Not used by the Lambdas.
 
@@ -153,6 +169,16 @@ make generate-mock ACCOUNTS=50 PROFILE=compute
 - View: `cinq.operational_live` — filters `WHERE last_seen_at > current_timestamp
   - interval '24' hour`; downstream consumers query this, not the raw table
 
+## S3 Vectors (schema RAG)
+
+- Vector bucket: `cinq-schemas-vectors`
+- Index: `cinq-schemas-index` (1024-dim float32, cosine similarity)
+- One vector per AWS Config resource type, embedded with Titan Text
+  Embeddings V2 over the enriched Markdown doc
+- Metadata per vector: `resource_type`, `service`, `category`, `field_count`
+- Used by `scripts/nlq.py` to retrieve top-K relevant schemas before NL→SQL
+  generation
+
 ## Environment
 
 - **Region**: eu-west-2
@@ -160,6 +186,11 @@ make generate-mock ACCOUNTS=50 PROFILE=compute
 - **Managed layer**: `arn:aws:lambda:eu-west-2:336392948345:layer:AWSSDKPandas-Python312:20`
   (bundles pyarrow + pandas + boto3 + awswrangler; ECR is unavailable in this
   account so container-image Lambdas are off the table)
+- **Bedrock models** (eu-west-2):
+  - Embeddings: `amazon.titan-embed-text-v2:0` (1024 dims, normalized)
+  - Chat / NL→SQL: `anthropic.claude-sonnet-4-6` (ON_DEMAND, no inference profile needed)
+- **Bedrock AgentCore**: NOT used. Client org doesn't permit it. All
+  orchestration is in `scripts/nlq.py`.
 
 ## Development Workflow
 

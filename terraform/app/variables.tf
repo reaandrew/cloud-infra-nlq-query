@@ -123,3 +123,41 @@ variable "sdk_pandas_layer_arn" {
   type        = string
   default     = "arn:aws:lambda:eu-west-2:336392948345:layer:AWSSDKPandas-Python312:20"
 }
+
+# ---------- Phase 2: Schema RAG (S3 Vectors + Bedrock) ----------
+
+variable "schemas_vector_bucket" {
+  description = "S3 Vectors bucket holding the resource-type schema embeddings"
+  type        = string
+  default     = "cinq-schemas-vectors"
+}
+
+variable "schemas_vector_index" {
+  description = "S3 Vectors index inside the schemas vector bucket"
+  type        = string
+  default     = "cinq-schemas-index"
+}
+
+variable "embedding_dimensions" {
+  description = "Embedding dimensions for the schema vectors. Titan Text Embeddings V2 supports 1024 (default), 512, or 256."
+  type        = number
+  default     = 1024
+}
+
+variable "vector_distance_metric" {
+  description = "Similarity metric for the schema vector index. Cosine is conventional for normalised embeddings."
+  type        = string
+  default     = "cosine"
+}
+
+variable "embedding_model_id" {
+  description = "Bedrock model ID for embedding generation (Titan Text Embeddings V2)."
+  type        = string
+  default     = "amazon.titan-embed-text-v2:0"
+}
+
+variable "chat_model_id" {
+  description = "Bedrock model ID for natural language to SQL generation. Verified ON_DEMAND in eu-west-2 as of phase 2 build."
+  type        = string
+  default     = "anthropic.claude-sonnet-4-6"
+}

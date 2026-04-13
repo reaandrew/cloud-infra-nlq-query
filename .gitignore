@@ -45,3 +45,9 @@ data/config_resource_schemas/
 
 # Pre-generated AWS event schemas (regenerate via scripts/generate_aws_event_schemas.sh)
 data/aws_event_schemas/
+
+# Enriched schema docs (regenerate via `make enrich-schemas`; not source-of-truth)
+data/enriched_schemas/*.md
+
+# Build artifacts
+build/

@@ -67,3 +67,25 @@ output "embedding_dimensions" {
   description = "Embedding vector dimensionality"
   value       = var.embedding_dimensions
 }
+
+# ---------- Phase 3: HTTP API ----------
+
+output "nlq_api_endpoint" {
+  description = "Custom-domain URL for the NLQ HTTP API"
+  value       = "https://${var.api_domain_name}/nlq"
+}
+
+output "nlq_api_default_endpoint" {
+  description = "API Gateway default endpoint (works without DNS, for testing)"
+  value       = "${aws_apigatewayv2_api.nlq.api_endpoint}/nlq"
+}
+
+output "nlq_api_key_secret_arn" {
+  description = "Secrets Manager ARN holding the API key. Fetch with `aws secretsmanager get-secret-value --secret-id <arn> --query SecretString --output text`"
+  value       = aws_secretsmanager_secret.nlq_api_key.arn
+}
+
+output "nlq_lambda_log_group" {
+  description = "CloudWatch log group for the NLQ Lambda"
+  value       = aws_cloudwatch_log_group.nlq.name
+}

@@ -15,6 +15,12 @@ to generate a single Athena SELECT, and runs it against the Iceberg table.
 Bedrock AgentCore is **not** used — orchestration is all in the CLI script
 because the client org doesn't permit AgentCore.
 
+The same NLQ logic is also exposed as an HTTP API at
+**`https://api.nlq.demos.apps.equal.expert/nlq`** (API Gateway v2 → Lambda
+authoriser checking `x-api-key` against Secrets Manager → NLQ Lambda → Bedrock +
+S3 Vectors + Athena → JSON). `POST /nlq` with `{"question": "..."}` returns
+`{question, sql, retrieved_schemas, columns, rows, row_count, athena_query_id, timings}`.
+
 ## Architecture
 
 ```
@@ -149,6 +155,9 @@ make generate-mock ACCOUNTS=50 PROFILE=compute
 - **scripts/nlq.py** — runtime NL→SQL CLI: embeds question, retrieves
   top-K schemas from S3 Vectors, asks Claude for SQL, validates SELECT-only,
   runs against Athena, prints results. Reads infra coords from terraform outputs.
+- **scripts/package_nlq_lambda.sh** — bundles the NLQ HTTP API Lambda:
+  copies handler, syncs enriched_schemas/, pip installs boto3>=1.42 into
+  build/nlq/. Run by `make package-nlq` (a deploy prerequisite).
 - **scripts/export_config_to_parquet.py**, **scripts/unpack_config_snapshots.py**
   — local dev-time alternatives to the pipeline. Not used by the Lambdas.
 
@@ -168,6 +177,25 @@ make generate-mock ACCOUNTS=50 PROFILE=compute
 - Iceberg table: `cinq.operational` (partitioned by `account_id`)
 - View: `cinq.operational_live` — filters `WHERE last_seen_at > current_timestamp
   - interval '24' hour`; downstream consumers query this, not the raw table
+
+## NLQ HTTP API (phase 3)
+
+- Endpoint: `https://api.nlq.demos.apps.equal.expert/nlq`
+- Default API Gateway endpoint (works without DNS): see
+  `terraform output -raw nlq_api_default_endpoint`
+- Auth: `x-api-key` header. Fetch the value with `make api-key`.
+- Throttle: 50 req/s burst, 10 req/s steady (per stage default).
+- Lambdas:
+  - `cloud-infra-nlq-query-nlq` — main NLQ handler. Bundles its own
+    boto3>=1.42 (Lambda runtime's bundled boto3 doesn't know `s3vectors`)
+    and the enriched schema markdown docs.
+  - `cloud-infra-nlq-query-nlq-auth` — REQUEST authoriser. Checks
+    `x-api-key` against `cloud-infra-nlq-query-nlq-api-key` in Secrets
+    Manager. 5-minute API-Gateway-side cache.
+- Custom domain: A record `api.nlq` in the existing
+  `demos.apps.equal.expert` Route 53 zone, ACM cert validated via DNS
+  in the same zone, all created by terraform.
+- Quick test from a workstation: `make nlq-api Q="how many EC2 instances per account"`
 
 ## S3 Vectors (schema RAG)
 

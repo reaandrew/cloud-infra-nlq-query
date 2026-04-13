@@ -1,6 +1,6 @@
 .PHONY: init deploy clean bootstrap fetch-schemas generate-mock unpack-mock \
-        package-extract package-compact package-lambdas test-pipeline \
-        enrich-schemas index-schemas nlq help
+        package-extract package-compact package-nlq package-lambdas test-pipeline \
+        enrich-schemas index-schemas nlq nlq-api api-key help
 
 # Knobs (override on the command line, e.g. `make generate-mock ACCOUNTS=50`)
 AWS_REGION      ?= eu-west-2
@@ -30,7 +30,13 @@ package-compact:
 	@echo "Packaging compact Lambda..."
 	@mkdir -p build
 
-package-lambdas: package-extract package-compact
+# Bundle the NLQ Lambda: handler + boto3>=1.42 (for s3vectors) + the
+# enriched schema markdown docs. Idempotent re-run-safe.
+package-nlq:
+	@echo "Packaging NLQ HTTP API Lambda..."
+	./scripts/package_nlq_lambda.sh
+
+package-lambdas: package-extract package-compact package-nlq
 
 deploy: package-lambdas
 	@echo "Deploying infrastructure..."
@@ -97,6 +103,25 @@ nlq:
 	@if [ -z "$(Q)" ]; then echo 'usage: make nlq Q="<question>" [NLQ_ARGS="..."]'; exit 2; fi
 	./scripts/nlq.py $(NLQ_ARGS) "$(Q)"
 
+# Print the NLQ API key from Secrets Manager so you can stick it in $X_API_KEY.
+api-key:
+	@aws secretsmanager get-secret-value \
+		--secret-id $$(terraform -chdir=terraform/app output -raw nlq_api_key_secret_arn) \
+		--query SecretString --output text
+
+# Curl the deployed HTTP API. Pass Q="..." for the question.
+nlq-api:
+	@if [ -z "$(Q)" ]; then echo 'usage: make nlq-api Q="<question>"'; exit 2; fi
+	@key=$$(aws secretsmanager get-secret-value \
+		--secret-id $$(terraform -chdir=terraform/app output -raw nlq_api_key_secret_arn) \
+		--query SecretString --output text); \
+	endpoint=$$(terraform -chdir=terraform/app output -raw nlq_api_endpoint); \
+	echo "POST $$endpoint"; \
+	curl -sS -X POST "$$endpoint" \
+		-H "x-api-key: $$key" \
+		-H 'content-type: application/json' \
+		-d "$$(jq -nc --arg q '$(Q)' '{question:$$q}')" | jq
+
 clean:
 	@echo "Cleaning up..."
 	rm -f terraform/app/.terraform.lock.hcl
@@ -114,7 +139,9 @@ help:
 	@echo "  unpack-mock    - Dev-time local unpack (pre-pipeline workflow)"
 	@echo "  enrich-schemas - One-off Claude enrichment of raw schemas (FORCE=1, LIMIT=N)"
 	@echo "  index-schemas  - Embed enriched schemas with Titan, upsert into S3 Vectors"
-	@echo "  nlq            - Run an NL question. Usage: make nlq Q='<question>' [NLQ_ARGS='--explain --dry-run']"
+	@echo "  nlq            - Local NL query via scripts/nlq.py. Usage: make nlq Q='<question>' [NLQ_ARGS='--explain --dry-run']"
+	@echo "  nlq-api        - Curl the deployed HTTP API. Usage: make nlq-api Q='<question>'"
+	@echo "  api-key        - Print the NLQ API key from Secrets Manager"
 	@echo "  clean          - Remove local Terraform state/cache and build artifacts"
 	@echo "  all            - Run init and deploy"
 	@echo ""

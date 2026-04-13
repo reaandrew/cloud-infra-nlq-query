@@ -161,3 +161,29 @@ variable "chat_model_id" {
   type        = string
   default     = "anthropic.claude-sonnet-4-6"
 }
+
+# ---------- Phase 3: HTTP API ----------
+
+variable "api_domain_name" {
+  description = "Custom domain name for the NLQ HTTP API"
+  type        = string
+  default     = "api.nlq.demos.apps.equal.expert"
+}
+
+variable "api_dns_zone_name" {
+  description = "Route 53 hosted zone that owns the api_domain_name. The zone must already exist in this account."
+  type        = string
+  default     = "demos.apps.equal.expert"
+}
+
+variable "nlq_lambda_memory_mb" {
+  description = "Memory allocated to the NLQ HTTP API Lambda"
+  type        = number
+  default     = 1024
+}
+
+variable "nlq_lambda_timeout_seconds" {
+  description = "Timeout for the NLQ HTTP API Lambda. Must accommodate Bedrock + Athena round trips."
+  type        = number
+  default     = 90
+}

@@ -186,6 +186,158 @@ resource "aws_lambda_function" "nlq" {
   ]
 }
 
+# ---------- Stats Lambda (unauthenticated GET /stats/*) ----------
+
+data "archive_file" "stats" {
+  type        = "zip"
+  source_file = "${path.module}/../../lambda/stats/handler.py"
+  output_path = "${path.module}/../../build/stats.zip"
+}
+
+resource "aws_iam_role" "stats" {
+  name = "${var.app_name}-stats"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "lambda.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "stats" {
+  role = aws_iam_role.stats.id
+  name = "${var.app_name}-stats"
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents",
+        ]
+        Resource = "arn:aws:logs:${var.aws_region}:*:*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "athena:StartQueryExecution",
+          "athena:GetQueryExecution",
+          "athena:GetQueryResults",
+          "athena:StopQueryExecution",
+          "athena:GetWorkGroup",
+        ]
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "glue:GetDatabase",
+          "glue:GetDatabases",
+          "glue:GetTable",
+          "glue:GetTables",
+          "glue:GetPartition",
+          "glue:GetPartitions",
+        ]
+        Resource = [
+          "arn:aws:glue:${var.aws_region}:*:catalog",
+          "arn:aws:glue:${var.aws_region}:*:database/${var.glue_database_name}",
+          "arn:aws:glue:${var.aws_region}:*:table/${var.glue_database_name}/*",
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:ListBucket",
+          "s3:GetBucketLocation",
+        ]
+        Resource = [
+          aws_s3_bucket.athena_results.arn,
+          "${aws_s3_bucket.athena_results.arn}/*",
+          aws_s3_bucket.config.arn,
+          "${aws_s3_bucket.config.arn}/*",
+        ]
+      },
+    ]
+  })
+}
+
+resource "aws_cloudwatch_log_group" "stats" {
+  name              = "/aws/lambda/${var.app_name}-stats"
+  retention_in_days = 14
+}
+
+resource "aws_lambda_function" "stats" {
+  function_name    = "${var.app_name}-stats"
+  role             = aws_iam_role.stats.arn
+  runtime          = "python3.12"
+  handler          = "handler.handler"
+  filename         = data.archive_file.stats.output_path
+  source_code_hash = data.archive_file.stats.output_base64sha256
+  memory_size      = 512
+  timeout          = 30
+
+  environment {
+    variables = {
+      GLUE_DATABASE         = var.glue_database_name
+      ICEBERG_VIEW          = var.iceberg_view_name
+      ATHENA_RESULTS_BUCKET = aws_s3_bucket.athena_results.bucket
+      ATHENA_WORKGROUP      = "primary"
+    }
+  }
+
+  depends_on = [
+    aws_iam_role_policy.stats,
+    aws_cloudwatch_log_group.stats,
+  ]
+}
+
+resource "aws_apigatewayv2_integration" "stats" {
+  api_id                 = aws_apigatewayv2_api.nlq.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = aws_lambda_function.stats.invoke_arn
+  integration_method     = "POST"
+  payload_format_version = "2.0"
+  timeout_milliseconds   = 29000
+}
+
+resource "aws_apigatewayv2_route" "stats_overview" {
+  api_id    = aws_apigatewayv2_api.nlq.id
+  route_key = "GET /stats/overview"
+  target    = "integrations/${aws_apigatewayv2_integration.stats.id}"
+}
+
+resource "aws_apigatewayv2_route" "stats_by_type" {
+  api_id    = aws_apigatewayv2_api.nlq.id
+  route_key = "GET /stats/by-type"
+  target    = "integrations/${aws_apigatewayv2_integration.stats.id}"
+}
+
+resource "aws_apigatewayv2_route" "stats_by_account" {
+  api_id    = aws_apigatewayv2_api.nlq.id
+  route_key = "GET /stats/by-account"
+  target    = "integrations/${aws_apigatewayv2_integration.stats.id}"
+}
+
+resource "aws_apigatewayv2_route" "stats_by_region" {
+  api_id    = aws_apigatewayv2_api.nlq.id
+  route_key = "GET /stats/by-region"
+  target    = "integrations/${aws_apigatewayv2_integration.stats.id}"
+}
+
+resource "aws_lambda_permission" "stats_apigw" {
+  statement_id  = "AllowAPIGatewayInvokeStats"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.stats.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.nlq.execution_arn}/*/*"
+}
+
 # ---------- Authoriser Lambda ----------
 
 data "archive_file" "nlq_auth" {
@@ -265,10 +417,11 @@ resource "aws_apigatewayv2_api" "nlq" {
   description   = "NLQ HTTP API — POST /nlq returns JSON results from Athena"
 
   cors_configuration {
-    allow_methods = ["POST", "OPTIONS"]
-    allow_origins = ["*"]
-    allow_headers = ["content-type", "x-api-key"]
-    max_age       = 300
+    allow_methods  = ["GET", "POST", "OPTIONS"]
+    allow_origins  = ["*"]
+    allow_headers  = ["content-type", "x-api-key", "authorization"]
+    expose_headers = ["content-type", "cache-control"]
+    max_age        = 300
   }
 }
 

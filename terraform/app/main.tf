@@ -19,6 +19,14 @@ provider "aws" {
   region = var.aws_region
 }
 
+# Second AWS provider alias pinned to us-east-1 — required by CloudFront
+# for the SPA's ACM certificate (CloudFront only consumes ACM certs from
+# us-east-1, regardless of where the distribution is consumed).
+provider "aws" {
+  alias  = "us_east_1"
+  region = "us-east-1"
+}
+
 data "aws_availability_zones" "available" {
   state = "available"
 }

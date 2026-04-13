@@ -187,3 +187,15 @@ variable "nlq_lambda_timeout_seconds" {
   type        = number
   default     = 90
 }
+
+variable "spa_domain_name" {
+  description = "Custom domain name for the SPA front-end (CloudFront)"
+  type        = string
+  default     = "nlq.demos.apps.equal.expert"
+}
+
+variable "spa_bucket_name" {
+  description = "S3 bucket holding the built SPA assets (private, fronted by CloudFront)"
+  type        = string
+  default     = "cinq-nlq-spa"
+}

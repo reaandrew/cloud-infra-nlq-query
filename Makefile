@@ -1,6 +1,7 @@
 .PHONY: init deploy clean bootstrap fetch-schemas generate-mock unpack-mock \
         package-extract package-compact package-nlq package-lambdas test-pipeline \
-        enrich-schemas index-schemas nlq nlq-api api-key help
+        enrich-schemas index-schemas nlq nlq-api api-key \
+        spa-install spa-build spa-dev spa-sync spa-invalidate spa-deploy help
 
 # Knobs (override on the command line, e.g. `make generate-mock ACCOUNTS=50`)
 AWS_REGION      ?= eu-west-2
@@ -109,6 +110,39 @@ api-key:
 		--secret-id $$(terraform -chdir=terraform/app output -raw nlq_api_key_secret_arn) \
 		--query SecretString --output text
 
+# ---- SPA front-end ----
+
+spa-install:
+	@cd web && npm install --silent
+
+spa-build: spa-install
+	@cd web && VITE_API_BASE_URL=https://$$(terraform -chdir=../terraform/app output -raw nlq_api_endpoint | sed 's|https://||;s|/nlq||') npm run build
+
+spa-dev: spa-install
+	@cd web && VITE_API_BASE_URL=https://$$(terraform -chdir=../terraform/app output -raw nlq_api_endpoint | sed 's|https://||;s|/nlq||') npm run dev
+
+spa-sync:
+	@bucket=$$(terraform -chdir=terraform/app output -raw spa_bucket); \
+	echo "syncing web/dist → s3://$$bucket/"; \
+	aws s3 sync web/dist/ s3://$$bucket/ --delete \
+		--cache-control "public, max-age=31536000, immutable" \
+		--exclude index.html --exclude favicon.svg; \
+	aws s3 cp web/dist/index.html s3://$$bucket/index.html \
+		--cache-control "no-cache, no-store, must-revalidate" \
+		--content-type text/html; \
+	aws s3 cp web/dist/favicon.svg s3://$$bucket/favicon.svg \
+		--cache-control "public, max-age=86400" \
+		--content-type "image/svg+xml"
+
+spa-invalidate:
+	@dist=$$(terraform -chdir=terraform/app output -raw spa_distribution_id); \
+	echo "invalidating CloudFront $$dist"; \
+	aws cloudfront create-invalidation --distribution-id $$dist --paths '/*' \
+		--query 'Invalidation.[Id,Status]' --output text
+
+spa-deploy: spa-build spa-sync spa-invalidate
+	@echo "SPA deployed → $$(terraform -chdir=terraform/app output -raw spa_url)"
+
 # Curl the deployed HTTP API. Pass Q="..." for the question.
 nlq-api:
 	@if [ -z "$(Q)" ]; then echo 'usage: make nlq-api Q="<question>"'; exit 2; fi
@@ -142,6 +176,9 @@ help:
 	@echo "  nlq            - Local NL query via scripts/nlq.py. Usage: make nlq Q='<question>' [NLQ_ARGS='--explain --dry-run']"
 	@echo "  nlq-api        - Curl the deployed HTTP API. Usage: make nlq-api Q='<question>'"
 	@echo "  api-key        - Print the NLQ API key from Secrets Manager"
+	@echo "  spa-dev        - Run the SPA locally (vite dev server) against the deployed API"
+	@echo "  spa-build      - Build the SPA into web/dist/"
+	@echo "  spa-deploy     - spa-build + sync to S3 + CloudFront invalidation"
 	@echo "  clean          - Remove local Terraform state/cache and build artifacts"
 	@echo "  all            - Run init and deploy"
 	@echo ""

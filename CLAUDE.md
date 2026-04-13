@@ -20,6 +20,14 @@ The same NLQ logic is also exposed as an HTTP API at
 authoriser checking `x-api-key` against Secrets Manager → NLQ Lambda → Bedrock +
 S3 Vectors + Athena → JSON). `POST /nlq` with `{"question": "..."}` returns
 `{question, sql, retrieved_schemas, columns, rows, row_count, athena_query_id, timings}`.
+Four unauthenticated `GET /stats/*` routes (`/overview`, `/by-type`,
+`/by-account`, `/by-region`) backed by a separate stats Lambda.
+
+A React SPA front-end is hosted at **`https://nlq.demos.apps.equal.expert`**
+(S3 + CloudFront + custom domain + ACM cert in us-east-1). Vite + TypeScript
++ Tailwind v4 + shadcn-style primitives. Two views: a Dashboard reading from
+`/stats/*` and a Query view with curated example queries that hits `/nlq`
+using an `x-api-key` the user pastes into a modal (stored in localStorage).
 
 ## Architecture
 
@@ -192,10 +200,34 @@ make generate-mock ACCOUNTS=50 PROFILE=compute
   - `cloud-infra-nlq-query-nlq-auth` — REQUEST authoriser. Checks
     `x-api-key` against `cloud-infra-nlq-query-nlq-api-key` in Secrets
     Manager. 5-minute API-Gateway-side cache.
+  - `cloud-infra-nlq-query-stats` — unauthenticated stats handler for
+    `GET /stats/{overview,by-type,by-account,by-region}`. Per-route
+    Athena aggregations cached in-memory for 60s per warm container.
 - Custom domain: A record `api.nlq` in the existing
   `demos.apps.equal.expert` Route 53 zone, ACM cert validated via DNS
   in the same zone, all created by terraform.
 - Quick test from a workstation: `make nlq-api Q="how many EC2 instances per account"`
+
+## SPA front-end (phase 4)
+
+- URL: `https://nlq.demos.apps.equal.expert`
+- Repo dir: `web/`
+- Stack: Vite + React 19 + TypeScript + Tailwind v4 + TanStack Query +
+  Recharts + Lucide icons. shadcn-style component primitives in
+  `web/src/components/ui/`. No Radix dependency.
+- Hosting: private S3 bucket `cinq-nlq-spa` fronted by CloudFront with
+  Origin Access Control. ACM cert in **us-east-1** (CloudFront only
+  honours certs from there) — terraform uses a second AWS provider
+  alias `aws.us_east_1`. Route 53 A alias record on the same
+  `demos.apps.equal.expert` zone we already use for the API.
+- Build flow: `make spa-deploy` runs `spa-build` → `spa-sync` (S3)
+  → `spa-invalidate` (CloudFront).
+- Local dev: `make spa-dev` starts the Vite dev server, configured to
+  call the deployed API at `https://api.nlq.demos.apps.equal.expert`.
+- Auth: SPA stores the API key in `localStorage` after the user pastes
+  it into a modal. The Dashboard view doesn't require a key (uses the
+  open `/stats/*` endpoints). The Query view does (hits authenticated
+  `/nlq`).
 
 ## S3 Vectors (schema RAG)
 

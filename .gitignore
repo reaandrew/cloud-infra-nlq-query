@@ -51,3 +51,7 @@ data/enriched_schemas/*.md
 
 # Build artifacts
 build/
+
+# Playwright MCP scratch (screenshots, snapshots, traces from headless tests)
+.playwright-mcp/
+spa-*.png

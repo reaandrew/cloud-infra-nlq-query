@@ -89,3 +89,18 @@ output "nlq_lambda_log_group" {
   description = "CloudWatch log group for the NLQ Lambda"
   value       = aws_cloudwatch_log_group.nlq.name
 }
+
+output "spa_url" {
+  description = "Public URL of the SPA front-end"
+  value       = "https://${var.spa_domain_name}"
+}
+
+output "spa_bucket" {
+  description = "S3 bucket holding the SPA assets"
+  value       = aws_s3_bucket.spa.bucket
+}
+
+output "spa_distribution_id" {
+  description = "CloudFront distribution ID for the SPA (use with create-invalidation)"
+  value       = aws_cloudfront_distribution.spa.id
+}

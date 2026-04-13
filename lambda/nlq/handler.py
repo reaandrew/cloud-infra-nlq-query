@@ -55,19 +55,31 @@ ATHENA_OUTPUT = f"s3://{ATHENA_RESULTS_BUCKET}/api/"
 SCHEMAS_DIR = Path(__file__).resolve().parent / "enriched_schemas"
 
 DEFAULT_TOP_K = 5
-DEFAULT_MAX_OUTPUT_TOKENS = 1500
+DEFAULT_MAX_OUTPUT_TOKENS = 1000
 DEFAULT_RESULT_ROW_LIMIT = 100
-DEFAULT_ATHENA_TIMEOUT = 60  # seconds
+DEFAULT_ATHENA_TIMEOUT = 22  # seconds — must stay well under API GW's 29s cap
 DEFAULT_QUESTION_MAX_CHARS = 2000
 
 # --- AWS clients (initialised once per warm Lambda) ---
-_BOTO_CFG = Config(
-    retries={"max_attempts": 5, "mode": "adaptive"},
-    read_timeout=60,
+#
+# API GW HTTP API has a hard 30-second integration timeout. boto3's default
+# adaptive-retry config will happily burn 50+ seconds on exponential backoff
+# for a transient Bedrock ServiceUnavailable, which is strictly worse than
+# failing fast and returning a clear 502. We cap Bedrock retries at 2 and
+# shrink the read timeout so a bad call can't eat the whole budget.
+_BEDROCK_CFG = Config(
+    retries={"max_attempts": 2, "mode": "standard"},
+    read_timeout=22,
+    connect_timeout=4,
 )
-BEDROCK = boto3.client("bedrock-runtime", config=_BOTO_CFG)
-S3VECTORS = boto3.client("s3vectors", config=_BOTO_CFG)
-ATHENA = boto3.client("athena", config=_BOTO_CFG)
+_FAST_CFG = Config(
+    retries={"max_attempts": 3, "mode": "standard"},
+    read_timeout=10,
+    connect_timeout=4,
+)
+BEDROCK = boto3.client("bedrock-runtime", config=_BEDROCK_CFG)
+S3VECTORS = boto3.client("s3vectors", config=_FAST_CFG)
+ATHENA = boto3.client("athena", config=_FAST_CFG)
 
 # --- regex for SQL safety ---
 SQL_BLOCK_RE = re.compile(r"```(?:sql)?\s*(.+?)```", re.DOTALL | re.IGNORECASE)

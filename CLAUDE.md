@@ -25,9 +25,22 @@ Four unauthenticated `GET /stats/*` routes (`/overview`, `/by-type`,
 
 A React SPA front-end is hosted at **`https://nlq.demos.apps.equal.expert`**
 (S3 + CloudFront + custom domain + ACM cert in us-east-1). Vite + TypeScript
-+ Tailwind v4 + shadcn-style primitives. Two views: a Dashboard reading from
-`/stats/*` and a Query view with curated example queries that hits `/nlq`
-using an `x-api-key` the user pastes into a modal (stored in localStorage).
++ Tailwind v4. **Styled to GOV.UK Design System** (GDS) conventions —
+black header, sharp corners, no shadows, GDS green/blue palette, yellow
+focus highlights, Helvetica/Arial. Branded explicitly as a **DEMO** (no
+GOV.UK crown or wordmark — this isn't a real government service). Two
+views: a Dashboard reading from `/stats/*` and a Query view with a
+quick-start library of example queries grouped by **complexity level**
+(L1 Basics → L2 JSON fields → L3 Cross-resource joins → L4 Advanced).
+The Query view shows a per-stage progress panel during a request that
+animates against the median observed timings and snaps to the real
+per-stage durations on completion.
+
+The NLQ Lambda calls Bedrock via the **`global.anthropic.claude-sonnet-4-6`
+cross-region inference profile** rather than the single-region ON_DEMAND
+endpoint — the global profile load-balances requests across all
+Anthropic regions and has materially better availability when the
+single-region endpoint is throttled.
 
 ## Architecture
 

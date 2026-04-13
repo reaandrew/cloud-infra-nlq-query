@@ -45,7 +45,7 @@ export function Dialog({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-fade-in">
       <div
-        className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm"
+        className="absolute inset-0 bg-[var(--color-text)]/70"
         onClick={closeable ? onClose : undefined}
         aria-hidden="true"
       />
@@ -54,33 +54,35 @@ export function Dialog({
         aria-modal="true"
         aria-labelledby="dialog-title"
         className={cn(
-          "relative bg-white rounded-2xl shadow-[var(--shadow-elevated)] w-full max-w-lg",
+          "relative bg-white border border-[var(--color-border)] w-full max-w-xl",
           className,
         )}
       >
-        <div className="flex items-start justify-between gap-4 px-6 pt-6 pb-3">
+        <div className="flex items-start justify-between gap-5 px-8 pt-7 pb-4">
           <div className="min-w-0">
             <h2
               id="dialog-title"
-              className="text-lg font-semibold text-[var(--color-fg-primary)] tracking-tight"
+              className="text-[24px] font-bold text-[var(--color-text)] leading-tight"
             >
               {title}
             </h2>
             {description ? (
-              <p className="mt-1 text-sm text-[var(--color-fg-muted)]">{description}</p>
+              <p className="mt-2 text-[16px] text-[var(--color-text-secondary)]">
+                {description}
+              </p>
             ) : null}
           </div>
           {closeable ? (
             <button
               onClick={onClose}
-              className="shrink-0 -mt-2 -mr-2 p-2 rounded-md text-[var(--color-fg-muted)] hover:bg-[var(--color-bg-app)] hover:text-[var(--color-fg-primary)]"
+              className="shrink-0 -mt-1 -mr-2 p-2 text-[var(--color-text)] hover:bg-[var(--color-bg-grey)]"
               aria-label="Close"
             >
-              <X size={18} />
+              <X size={20} />
             </button>
           ) : null}
         </div>
-        <div className="px-6 pb-6">{children}</div>
+        <div className="px-8 pb-8">{children}</div>
       </div>
     </div>
   );

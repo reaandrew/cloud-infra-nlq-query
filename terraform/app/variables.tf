@@ -157,9 +157,9 @@ variable "embedding_model_id" {
 }
 
 variable "chat_model_id" {
-  description = "Bedrock model ID for natural language to SQL generation. Verified ON_DEMAND in eu-west-2 as of phase 2 build."
+  description = "Bedrock model ID (or inference profile ID) for natural language to SQL generation. Defaults to the global cross-region inference profile for Claude Sonnet 4.6, which load-balances across regions and has materially better capacity than the ON_DEMAND single-region endpoint during peak demand."
   type        = string
-  default     = "anthropic.claude-sonnet-4-6"
+  default     = "global.anthropic.claude-sonnet-4-6"
 }
 
 # ---------- Phase 3: HTTP API ----------

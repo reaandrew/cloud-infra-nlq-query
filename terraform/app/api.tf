@@ -87,13 +87,16 @@ resource "aws_iam_role_policy" "nlq" {
         Resource = "arn:aws:logs:${var.aws_region}:*:*"
       },
       {
-        Effect = "Allow"
-        Action = ["bedrock:InvokeModel"]
+        # var.chat_model_id can be either a foundation-model ID or an
+        # inference-profile ID (e.g. global.anthropic.claude-sonnet-4-6
+        # load-balances across many regions). Both need to be granted, and
+        # the profile routes requests to multiple underlying foundation
+        # models so the resource scope has to cover all of them.
+        Effect   = "Allow"
+        Action   = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"]
         Resource = [
-          "arn:aws:bedrock:${var.aws_region}::foundation-model/${var.embedding_model_id}",
-          "arn:aws:bedrock:${var.aws_region}::foundation-model/${var.chat_model_id}",
-          "arn:aws:bedrock:${var.aws_region}:*:foundation-model/${var.embedding_model_id}",
-          "arn:aws:bedrock:${var.aws_region}:*:foundation-model/${var.chat_model_id}",
+          "arn:aws:bedrock:*::foundation-model/*",
+          "arn:aws:bedrock:*:*:inference-profile/*",
         ]
       },
       {

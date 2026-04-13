@@ -1,61 +1,62 @@
 @import "tailwindcss";
 
 /*
- * cinq design tokens
+ * Design system: GOV.UK Design System (GDS) tokens.
  *
- * Slate sidebar, soft white content area, indigo accent for primary
- * actions, lime for healthy KPIs, amber for warnings. Inter for UI,
- * JetBrains Mono for code.
+ * This SPA is a public-facing demo for a public-sector audience, so the
+ * look-and-feel mirrors gov.uk: black header, sharp corners, no shadows,
+ * thick black borders, GDS green primary buttons, gov.uk blue links,
+ * the unmistakable yellow focus highlight.
+ *
+ * Crown logo and "GOV.UK" wordmark are deliberately NOT used — this
+ * isn't a real government service.
+ *
+ * Typography uses Arial (the GDS-recommended fallback) rather than
+ * GDS Transport, which is licensed for gov.uk use only.
+ *
+ * Source: https://design-system.service.gov.uk/styles/colour/
  */
+
 @theme {
-  --color-bg-app: #f7f8fa;
-  --color-bg-surface: #ffffff;
-  --color-bg-elevated: #ffffff;
-  --color-bg-sidebar: #0b1220;
-  --color-bg-sidebar-elevated: #111a2e;
-  --color-bg-sidebar-active: #1c2740;
+  /* ---- core palette ---- */
+  --color-text: #0b0c0c;
+  --color-text-secondary: #505a5f;
+  --color-text-inverse: #ffffff;
+  --color-link: #1d70b8;
+  --color-link-hover: #003078;
+  --color-link-visited: #4c2c92;
+  --color-bg: #ffffff;
+  --color-bg-grey: #f3f2f1;
+  --color-bg-grey-2: #e7e6e3;
+  --color-border: #b1b4b6;
+  --color-border-strong: #0b0c0c;
 
-  --color-fg-primary: #0b1220;
-  --color-fg-secondary: #4b5563;
-  --color-fg-muted: #6b7280;
-  --color-fg-inverse: #f8fafc;
-  --color-fg-sidebar: #e2e8f0;
-  --color-fg-sidebar-muted: #94a3b8;
+  /* ---- accents ---- */
+  --color-green: #00703c;          /* primary action / success */
+  --color-green-hover: #005a30;
+  --color-green-shadow: #002d18;
+  --color-yellow: #ffdd00;          /* focus highlight */
+  --color-blue: #1d70b8;            /* gov.uk blue */
+  --color-blue-light: #5694ca;
+  --color-blue-dark: #144e81;
+  --color-red: #d4351c;             /* error */
+  --color-red-bg: #fef7f7;
+  --color-purple: #4c2c92;
+  --color-orange: #f47738;
 
-  --color-border-subtle: #e5e7eb;
-  --color-border-default: #d1d5db;
-  --color-border-strong: #9ca3af;
-  --color-border-sidebar: #1e293b;
+  /* ---- semantic surfaces ---- */
+  --color-header-bg: #0b0c0c;
+  --color-phase-banner-bg: #f3f2f1;
+  --color-card-bg: #ffffff;
+  --color-table-row-hover: #f3f2f1;
 
-  --color-accent-50: #eef2ff;
-  --color-accent-100: #e0e7ff;
-  --color-accent-200: #c7d2fe;
-  --color-accent-500: #6366f1;
-  --color-accent-600: #4f46e5;
-  --color-accent-700: #4338ca;
-  --color-accent-fg: #ffffff;
+  /* ---- typography ---- */
+  --font-sans: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", "SF Mono", "Menlo", "Consolas", monospace;
 
-  --color-success-50: #ecfdf5;
-  --color-success-500: #10b981;
-  --color-success-700: #047857;
-
-  --color-warning-50: #fffbeb;
-  --color-warning-500: #f59e0b;
-  --color-warning-700: #b45309;
-
-  --color-danger-50: #fef2f2;
-  --color-danger-500: #ef4444;
-  --color-danger-700: #b91c1c;
-
-  --font-sans: "Inter", "ui-sans-serif", system-ui, -apple-system, sans-serif;
-  --font-mono: "JetBrains Mono", "ui-monospace", "SFMono-Regular", "Menlo", monospace;
-
-  --radius-sm: 0.375rem;
-  --radius-md: 0.5rem;
-  --radius-lg: 0.75rem;
-
-  --shadow-card: 0 1px 2px 0 rgb(15 23 42 / 0.04), 0 1px 1px 0 rgb(15 23 42 / 0.03);
-  --shadow-elevated: 0 4px 16px -4px rgb(15 23 42 / 0.1), 0 2px 4px -2px rgb(15 23 42 / 0.05);
+  /* ---- radius (sharp by default; one is "soft" for mono blocks) ---- */
+  --radius-none: 0;
+  --radius-soft: 0;
 }
 
 html, body, #root {
@@ -63,57 +64,137 @@ html, body, #root {
 }
 
 body {
-  background: var(--color-bg-app);
-  color: var(--color-fg-primary);
+  background: var(--color-bg);
+  color: var(--color-text);
   font-family: var(--font-sans);
-  font-feature-settings: "cv11", "ss01";
+  font-size: 19px;
+  line-height: 1.31579;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   margin: 0;
+}
+
+@media (max-width: 40em) {
+  body {
+    font-size: 16px;
+    line-height: 1.25;
+  }
 }
 
 code, pre, .font-mono {
   font-family: var(--font-mono);
 }
 
-/* ---- nice scrollbars ---- */
-*::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+/* ---------- GDS focus state (the most distinctive thing) ----------
+ * Yellow background with a thick black underline. Mandatory across
+ * every interactive element.
+ */
+*:focus {
+  outline: 3px solid transparent;
+  color: var(--color-text);
+  background-color: var(--color-yellow);
+  box-shadow:
+    0 -2px var(--color-yellow),
+    0 4px var(--color-text);
+  text-decoration: none;
 }
-*::-webkit-scrollbar-track {
+*:focus:not(:focus-visible) {
+  outline: none;
   background: transparent;
+  box-shadow: none;
 }
-*::-webkit-scrollbar-thumb {
-  background: rgb(203 213 225 / 0.6);
-  border-radius: 6px;
+button:focus,
+a:focus,
+input:focus,
+textarea:focus {
+  outline: 3px solid transparent;
+  background-color: var(--color-yellow);
+  box-shadow:
+    0 -2px var(--color-yellow),
+    0 4px var(--color-text);
+  color: var(--color-text);
 }
-*::-webkit-scrollbar-thumb:hover {
-  background: rgb(148 163 184);
+input:focus,
+textarea:focus {
+  border-color: var(--color-text);
 }
 
-/* ---- subtle keyframe utilities ---- */
+/* Reset focus on the icon-only header buttons that have rounded
+ * backgrounds — the GDS focus rule looks bad on rounded shapes,
+ * but for sharp-cornered controls (which is most of them) it's perfect.
+ */
+
+/* ---------- typography ---------- */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-sans);
+  color: var(--color-text);
+  font-weight: 700;
+  margin: 0;
+}
+
+/* GDS type scale (https://design-system.service.gov.uk/styles/type-scale/)
+ * — desktop sizes are: XL 48/50, L 36/40, M 24/30, S 19/25.
+ * The class names map to the same level GDS uses for govuk-heading-* so
+ * picking the right one matches an actual service.
+ */
+.gds-xl { font-size: 48px; line-height: 1.04167; font-weight: 700; margin: 0 0 30px; }
+.gds-l  { font-size: 36px; line-height: 1.11111; font-weight: 700; margin: 0 0 20px; }
+.gds-m  { font-size: 24px; line-height: 1.25;    font-weight: 700; margin: 0 0 15px; }
+.gds-s  { font-size: 19px; line-height: 1.3;     font-weight: 700; margin: 0 0 10px; }
+
+/* legacy aliases used by older components — point them at the new scale */
+.gds-h1 { font-size: 36px; line-height: 1.11111; font-weight: 700; margin: 0 0 20px; }
+.gds-h2 { font-size: 24px; line-height: 1.25;    font-weight: 700; margin: 0 0 15px; }
+.gds-h3 { font-size: 19px; line-height: 1.3;     font-weight: 700; margin: 0 0 10px; }
+
+@media (max-width: 40em) {
+  .gds-xl { font-size: 32px; line-height: 1.09375; margin-bottom: 20px; }
+  .gds-l  { font-size: 27px; line-height: 1.11111; margin-bottom: 15px; }
+  .gds-m  { font-size: 21px; line-height: 1.19048; margin-bottom: 10px; }
+  .gds-s  { font-size: 19px; line-height: 1.31579; margin-bottom: 10px; }
+  .gds-h1 { font-size: 27px; line-height: 1.11111; margin-bottom: 15px; }
+  .gds-h2 { font-size: 21px; line-height: 1.19048; margin-bottom: 10px; }
+}
+
+/* ---------- links ---------- */
+a {
+  color: var(--color-link);
+  text-decoration: underline;
+  text-decoration-thickness: max(1px, .0625rem);
+  text-underline-offset: .1578em;
+}
+a:hover { color: var(--color-link-hover); text-decoration-thickness: max(3px, .1875rem, .12em); }
+a:visited { color: var(--color-link-visited); }
+
+/* ---------- nice scrollbars ---------- */
+*::-webkit-scrollbar { width: 12px; height: 12px; }
+*::-webkit-scrollbar-track { background: var(--color-bg-grey); }
+*::-webkit-scrollbar-thumb { background: var(--color-border); border: 2px solid var(--color-bg-grey); }
+*::-webkit-scrollbar-thumb:hover { background: var(--color-text-secondary); }
+
+/* ---------- animations ---------- */
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in { animation: fade-in 200ms ease-out; }
+
 @keyframes shimmer {
   0% { background-position: -200% 0; }
   100% { background-position: 200% 0; }
 }
 .skeleton {
-  background: linear-gradient(90deg, #e5e7eb 0%, #f3f4f6 50%, #e5e7eb 100%);
+  background: linear-gradient(90deg, #e7e6e3 0%, #f3f2f1 50%, #e7e6e3 100%);
   background-size: 200% 100%;
   animation: shimmer 1.4s ease-in-out infinite;
 }
 
-@keyframes spin-slow {
-  to { transform: rotate(360deg); }
+@keyframes progress-fill {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
 }
-.animate-spin-slow {
-  animation: spin-slow 1.6s linear infinite;
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
 }
-
-@keyframes fade-in {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-.animate-fade-in {
-  animation: fade-in 200ms ease-out;
-}
+.animate-pulse-soft { animation: pulse-soft 1.4s ease-in-out infinite; }

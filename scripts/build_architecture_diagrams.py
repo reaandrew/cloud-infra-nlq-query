@@ -111,13 +111,18 @@ class Edge:
             "jettySize=auto",
             "html=1",
             "strokeColor=#232F3E",
-            "strokeWidth=2",
-            "fontSize=12",
+            "strokeWidth=3",
+            "fontSize=14",
+            "fontStyle=1",
             "fontColor=#232F3E",
             "endArrow=block",
             "endFill=1",
-            "endSize=8",
+            "endSize=12",
+            "startSize=12",
             "labelBackgroundColor=#ffffff",
+            "labelBorderColor=none",
+            "spacingLeft=4",
+            "spacingRight=4",
         ]
         if self.exit is not None:
             ex, ey = self.exit
@@ -260,151 +265,207 @@ def plain_box(fill: str = "#FFFFFF", stroke: str = AWS_DARK) -> str:
 def diagram_overview() -> Diagram:
     """High-level system overview.
 
-    Strict top-to-bottom layout in 5 rows. Single user on the left
-    branches into the SPA path on the left half and the API path on
-    the right half. Backend resources (Bedrock, S3 Vectors, Athena,
-    Iceberg) sit on a shared bottom row reachable only from the API
-    path. The ingest pipeline is a SINGLE labelled column on the
-    far right so it stays out of the way of the runtime path edges.
+    Strict three-column layout so every arrow stays within its own
+    swim-lane. The SPA path, the runtime API path, and the ingest
+    pipeline each occupy a distinct column with their own top-down
+    flow. The only cross-column edges are:
+
+      * User → CloudFront and User → API Gateway (the two public entry
+        points) at the very top, with separated buses so they cannot
+        sit on top of each other.
+      * Extract Lambda → shared Iceberg table, routed through the far
+        RIGHT gutter (empty reserved column) so it never crosses the
+        backend resources or the runtime API column.
+
+    The 3-way fan-out from the NLQ Lambdas into Bedrock / S3 Vectors /
+    Athena is represented by a SINGLE arrow into a labelled backends
+    group (detail lives in diagram 04).
     """
-    W, H = 1800, 1100
+    W, H = 2200, 1200
     d = Diagram("01-system-overview", "System overview", W, H)
 
-    # Column anchors
-    SPA_X = 240
-    AUTH_X = 600
-    API_X = 880
-    INGEST_X = 1380
-    BACKEND_GAP = 240
+    # ---- reserved gutters (no nodes placed here) ----
+    RIGHT_GUTTER_X = W - 40
 
-    # Row anchors
+    # ---- column anchors (well-spaced, no overlaps) ----
+    USER_X = 60
+    SPA_X = 260       # CloudFront + SPA bucket column
+    API_X = 740       # API Gateway + NLQ Lambdas column
+    AUTH_X = 470      # Authoriser + Secrets column (between SPA and API)
+    BACKENDS_X = 1080 # Bedrock + S3 Vectors + Athena container
+    INGEST_X = 1800   # Ingest pipeline column (far right, clear of backends)
+
+    # ---- row anchors ----
     R_USER = 60
-    R_EDGE = 240        # CloudFront / API GW
-    R_LAMBDAS = 420     # SPA bucket / Auth / NLQ Lambda
-    R_RESOURCES = 600   # Bedrock / S3 Vectors / Athena
-    R_TABLE = 800       # Iceberg
+    R_EDGE = 240        # CloudFront / API GW / Mock bucket
+    R_LAMBDAS = 440     # SPA bucket / Auth / NLQ / SQS
+    R_RESOURCES = 640   # Secrets / (Backends container top) / Extract
+    R_TABLE = 920       # Iceberg (shared)
 
     # ---- nodes ----
-    d.nodes.append(Node("user", "End user", 60, R_USER, 80, 80, actor()))
+    d.nodes.append(Node("user", "End user", USER_X, R_USER, 100, 90, actor()))
 
-    # SPA path (left)
-    d.nodes.append(Node("cf", "CloudFront", SPA_X, R_EDGE, 160, 80,
+    # ---- SPA (browser) column ----
+    d.nodes.append(Node("cf", "CloudFront",
+                        SPA_X, R_EDGE, 180, 90,
                         aws_resource("cloudfront", "#8C4FFF")))
-    d.nodes.append(Node("spa_s3", "SPA bucket\n(S3)", SPA_X, R_LAMBDAS, 160, 80,
+    d.nodes.append(Node("spa_s3", "SPA bucket\ncinq-nlq-spa",
+                        SPA_X, R_LAMBDAS, 180, 90,
                         aws_resource("simple_storage_service", "#7AA116")))
 
-    # Auth column
-    d.nodes.append(Node("apigw", "API Gateway v2\nHTTP API", API_X, R_EDGE, 200, 80,
+    # ---- API runtime column ----
+    d.nodes.append(Node("apigw", "API Gateway v2\nHTTP API",
+                        API_X, R_EDGE, 220, 90,
                         aws_resource("api_gateway", "#FF4F8B")))
-    d.nodes.append(Node("auth", "Authoriser\nLambda", AUTH_X, R_LAMBDAS, 160, 80,
+    d.nodes.append(Node("nlq", "NLQ Lambdas\nsubmit + worker",
+                        API_X, R_LAMBDAS, 220, 90,
                         aws_resource("lambda", AWS_ORANGE)))
-    d.nodes.append(Node("secrets", "Secrets\nManager", AUTH_X, R_RESOURCES, 160, 80,
+    d.nodes.append(Node("jobs", "Jobs bucket\n(S3)",
+                        API_X, R_RESOURCES, 220, 90,
+                        aws_resource("simple_storage_service", "#7AA116")))
+
+    # ---- Auth column (between SPA and API) ----
+    d.nodes.append(Node("auth", "Authoriser\nLambda",
+                        AUTH_X, R_LAMBDAS, 200, 90,
+                        aws_resource("lambda", AWS_ORANGE)))
+    d.nodes.append(Node("secrets", "Secrets\nManager",
+                        AUTH_X, R_RESOURCES, 200, 90,
                         aws_resource("secrets_manager", "#DD344C")))
 
-    # API + NLQ Lambda — relabelled to reflect that it now dispatches
-    # submit/status requests and async-invokes a separate worker Lambda.
-    d.nodes.append(Node("nlq", "NLQ Lambdas\n(submit + worker)",
-                        API_X, R_LAMBDAS, 200, 80,
-                        aws_resource("lambda", AWS_ORANGE)))
-
-    # Backend row — Bedrock, S3 Vectors, Athena across the bottom
+    # ---- Backends container (Bedrock + S3 Vectors + Athena, horizontally) ----
+    # These are laid out inside a group to make clear they're one
+    # logical "shared backends" boundary — edges into the group come
+    # from the NLQ Lambda, edges out go to Iceberg.
+    backend_w = 200
+    backend_gap = 30
+    backend_h = 110
+    BE_ROW_Y = R_RESOURCES
     d.nodes.append(Node("bedrock", "Amazon Bedrock\n(Titan + Claude)",
-                        API_X - 80, R_RESOURCES, 200, 80,
+                        BACKENDS_X, BE_ROW_Y, backend_w, backend_h,
                         aws_resource("sagemaker", "#01A88D")))
     d.nodes.append(Node("s3v", "S3 Vectors\n(417 schemas)",
-                        API_X - 80 + BACKEND_GAP, R_RESOURCES, 200, 80,
+                        BACKENDS_X + (backend_w + backend_gap), BE_ROW_Y,
+                        backend_w, backend_h,
                         aws_resource("simple_storage_service", "#01A88D")))
     d.nodes.append(Node("athena", "Athena",
-                        API_X - 80 + BACKEND_GAP * 2, R_RESOURCES, 200, 80,
+                        BACKENDS_X + 2 * (backend_w + backend_gap), BE_ROW_Y,
+                        backend_w, backend_h,
                         aws_resource("athena", "#8C4FFF")))
 
-    # Iceberg single shared sink
-    d.nodes.append(Node("iceberg", "Iceberg table\ncinq.operational",
-                        API_X - 80 + BACKEND_GAP * 2, R_TABLE, 200, 80,
+    # ---- Ingest pipeline column (far right) ----
+    d.nodes.append(Node("mock", "cinq-config-mock\n(S3)",
+                        INGEST_X, R_EDGE, 220, 90,
                         aws_resource("simple_storage_service", "#7AA116")))
-
-    # Ingest column (far right)
-    d.nodes.append(Node("mock", "cinq-config-mock\n(S3)", INGEST_X, R_EDGE, 220, 80,
-                        aws_resource("simple_storage_service", "#7AA116")))
-    d.nodes.append(Node("sqs", "cinq-extract\n(SQS, batched)", INGEST_X, R_LAMBDAS, 220, 80,
+    d.nodes.append(Node("sqs", "cinq-extract\n(SQS, batched)",
+                        INGEST_X, R_LAMBDAS, 220, 90,
                         aws_resource("simple_queue_service", "#FF4F8B")))
-    d.nodes.append(Node("extract", "Extract Lambda\n(append to Iceberg)", INGEST_X, R_RESOURCES, 220, 80,
+    d.nodes.append(Node("extract", "Extract Lambda\n(append to Iceberg)",
+                        INGEST_X, R_RESOURCES, 220, 90,
                         aws_resource("lambda", AWS_ORANGE)))
 
+    # ---- Shared Iceberg table ----
+    iceberg_x = BACKENDS_X + (backend_w + backend_gap)  # under the middle backend (S3 Vectors)
+    d.nodes.append(Node("iceberg", "Iceberg table\ncinq.operational",
+                        iceberg_x, R_TABLE, backend_w, 90,
+                        aws_resource("simple_storage_service", "#7AA116")))
+
     # ---- edges ----
-    # User → CloudFront (down-and-right). Bus at Y=R_USER+30.
+
+    # User has TWO outgoing arrows. Use two different horizontal buses
+    # anchored to different exit Ys on the user actor so they cannot
+    # overlap.
     d.edges.append(Edge(
-        "e1", "user", "cf", "GET",
-        exit=(1.0, 0.4), entry=TOP,
-        waypoints=[(SPA_X + 80, R_USER + 32)],
+        "u_cf", "user", "cf", "HTTPS",
+        exit=(1.0, 0.35), entry=TOP,
+        waypoints=[(SPA_X + 90, R_USER + 30)],
     ))
-    # User → API GW uses a DIFFERENT horizontal bus and exit Y so its
-    # line never sits on top of e1's line.
     d.edges.append(Edge(
-        "e2", "user", "apigw", "POST /nlq",
-        exit=(1.0, 0.6), entry=TOP,
-        waypoints=[(API_X + 100, R_USER + 60)],
+        "u_api", "user", "apigw", "POST /nlq",
+        exit=(1.0, 0.65), entry=TOP,
+        waypoints=[(API_X + 110, R_USER + 60)],
     ))
 
-    # SPA path top→bottom
-    d.edges.append(Edge("e3", "cf", "spa_s3", "OAC",
+    # SPA path
+    d.edges.append(Edge("cf_s3", "cf", "spa_s3", "OAC",
                         exit=BOTTOM, entry=TOP))
 
-    # API GW → Auth (left bend)
-    d.edges.append(Edge("e4", "apigw", "auth", "x-api-key",
-                        exit=BOTTOM, entry=TOP,
-                        waypoints=[(AUTH_X + 80, R_EDGE + 130)]))
-    # Auth → Secrets
-    d.edges.append(Edge("e5", "auth", "secrets", "GetSecret",
+    # API runtime column — straight down
+    d.edges.append(Edge("api_nlq", "apigw", "nlq", "invoke",
                         exit=BOTTOM, entry=TOP))
-    # API GW → NLQ Lambda (straight down)
-    d.edges.append(Edge("e6", "apigw", "nlq",
+    d.edges.append(Edge("nlq_jobs", "nlq", "jobs", "write progress",
                         exit=BOTTOM, entry=TOP))
 
-    # NLQ Lambda fans down into Bedrock / S3 Vectors / Athena.
-    # Each edge uses a DISTINCT exit-X on the NLQ Lambda and a DISTINCT
-    # horizontal-bus Y so no two edges ever share a pixel.
-    bedrock_cx = API_X - 80 + 100
-    s3v_cx = API_X - 80 + BACKEND_GAP + 100
-    athena_cx = API_X - 80 + BACKEND_GAP * 2 + 100
-    # exit positions along the bottom of the NLQ Lambda (200px wide)
-    d.edges.append(Edge("e7", "nlq", "bedrock", "embed + chat",
-                        exit=(0.2, 1.0), entry=TOP,
-                        waypoints=[(API_X + 40, R_LAMBDAS + 110),
-                                   (bedrock_cx, R_LAMBDAS + 110)]))
-    d.edges.append(Edge("e8", "nlq", "s3v", "query top-K",
-                        exit=(0.5, 1.0), entry=TOP,
-                        waypoints=[(API_X + 100, R_LAMBDAS + 140),
-                                   (s3v_cx, R_LAMBDAS + 140)]))
-    d.edges.append(Edge("e9", "nlq", "athena", "INSERT/SELECT",
-                        exit=(0.8, 1.0), entry=TOP,
-                        waypoints=[(API_X + 160, R_LAMBDAS + 170),
-                                   (athena_cx, R_LAMBDAS + 170)]))
-
-    # Athena → Iceberg
-    d.edges.append(Edge("e10", "athena", "iceberg",
+    # API GW → Authoriser (down-left, through the clear gap at y=R_EDGE+120)
+    d.edges.append(Edge(
+        "api_auth", "apigw", "auth", "x-api-key",
+        exit=(0.1, 1.0), entry=TOP,
+        waypoints=[
+            (API_X + int(220 * 0.1), R_EDGE + 130),
+            (AUTH_X + 100, R_EDGE + 130),
+        ],
+    ))
+    d.edges.append(Edge("auth_secrets", "auth", "secrets", "GetSecret",
                         exit=BOTTOM, entry=TOP))
 
-    # Ingest column top→bottom
-    d.edges.append(Edge("e11", "mock", "sqs", "ObjectCreated",
+    # NLQ → Backends container (ONE arrow, right into the group)
+    d.edges.append(Edge(
+        "nlq_backends", "nlq", "bedrock", "embed / retrieve / generate / query",
+        exit=RIGHT, entry=LEFT,
+        waypoints=[(BACKENDS_X - 40, R_LAMBDAS + 45),
+                   (BACKENDS_X - 40, BE_ROW_Y + backend_h // 2)],
+    ))
+
+    # Athena → Iceberg (straight down from the right-most backend)
+    d.edges.append(Edge(
+        "athena_iceberg", "athena", "iceberg",
+        exit=(0.1, 1.0), entry=(0.9, 0.0),
+        waypoints=[
+            (BACKENDS_X + 2 * (backend_w + backend_gap) + int(backend_w * 0.1),
+             R_TABLE - 40),
+            (iceberg_x + int(backend_w * 0.9), R_TABLE - 40),
+        ],
+    ))
+
+    # Ingest column — straight down
+    d.edges.append(Edge("mock_sqs", "mock", "sqs", "ObjectCreated",
                         exit=BOTTOM, entry=TOP))
-    d.edges.append(Edge("e12", "sqs", "extract", "batch 25",
+    d.edges.append(Edge("sqs_extract", "sqs", "extract", "batch 25",
                         exit=BOTTOM, entry=TOP))
-    # Extract Lambda → Iceberg (sweep across to the right of athena)
-    d.edges.append(Edge("e13", "extract", "iceberg", "Athena INSERT",
-                        exit=BOTTOM, entry=RIGHT,
-                        waypoints=[(INGEST_X + 110, R_TABLE + 40),
-                                   (API_X - 80 + BACKEND_GAP * 2 + 220, R_TABLE + 40)]))
+
+    # Extract → Iceberg — routed via RIGHT gutter so it never crosses
+    # any other node. Exit extract RIGHT → far right gutter → drop to
+    # iceberg row → approach iceberg from its RIGHT side.
+    d.edges.append(Edge(
+        "extract_iceberg", "extract", "iceberg", "Athena INSERT",
+        exit=RIGHT, entry=RIGHT,
+        waypoints=[
+            (RIGHT_GUTTER_X, R_RESOURCES + 45),   # into the right gutter
+            (RIGHT_GUTTER_X, R_TABLE + 45),       # down to iceberg row
+        ],
+    ))
 
     # ---- groupings ----
-    d.groups.append(Group("g_browser", "Browser path",
-                          SPA_X - 40, R_EDGE - 40, 240, 320))
-    d.groups.append(Group("g_api", "API runtime path",
-                          AUTH_X - 40, R_EDGE - 40, API_X - AUTH_X + 280, 320))
-    d.groups.append(Group("g_data", "Backend resources (shared)",
-                          API_X - 120, R_RESOURCES - 40, BACKEND_GAP * 2 + 320, 320))
-    d.groups.append(Group("g_ingest", "Ingest pipeline (phase 1)",
-                          INGEST_X - 30, R_EDGE - 40, 280, 320))
+    d.groups.append(Group(
+        "g_browser", "Browser path",
+        SPA_X - 40, R_EDGE - 50, 260, R_LAMBDAS + 130 - (R_EDGE - 50),
+    ))
+    d.groups.append(Group(
+        "g_auth", "Authoriser",
+        AUTH_X - 30, R_LAMBDAS - 40, 260, R_RESOURCES + 120 - (R_LAMBDAS - 40),
+    ))
+    d.groups.append(Group(
+        "g_api", "Runtime API",
+        API_X - 40, R_EDGE - 50, 300, R_RESOURCES + 130 - (R_EDGE - 50),
+    ))
+    d.groups.append(Group(
+        "g_backends", "Shared backends",
+        BACKENDS_X - 30, BE_ROW_Y - 40,
+        3 * backend_w + 2 * backend_gap + 60, backend_h + 60,
+    ))
+    d.groups.append(Group(
+        "g_ingest", "Ingest pipeline (phase 1)",
+        INGEST_X - 30, R_EDGE - 50, 280, R_RESOURCES + 130 - (R_EDGE - 50),
+    ))
 
     return d
 
@@ -509,85 +570,97 @@ def diagram_rag_indexing() -> Diagram:
 
 
 def diagram_nlq_runtime() -> Diagram:
-    """Phase 3 — async NLQ runtime.
+    """Phase 3 — async NLQ runtime, AWS-style layout.
 
-    Split cleanly into two halves so no two arrows ever share pixels:
-
-    UPPER HALF (x=0..900): the submit + status + polling path.
-      user → Route 53 → API Gateway → Submit/Status Lambda
-                                         │  (down to Jobs bucket)
-                                         │  (async invoke → Worker, right)
-      Auth branch goes LEFT from API Gateway, Secrets below Auth.
-
-    LOWER HALF (x=0..1920): the worker pipeline, a strict L→R chain:
-      Worker → Titan embed → S3 Vectors → Claude generate → Athena → Iceberg
-
-    The only cross-half edges are:
-      - Submit async-invokes Worker (one diagonal)
-      - Worker writes progress back to Jobs bucket (one diagonal)
-    Both go through y=780 — but in DIFFERENT y slots (760 vs 800)
-    and different x ranges, so they never touch.
+    Design rules enforced below:
+      * Strict hierarchical top-down flow. User at top, worker pipeline
+        at the bottom, intermediate Lambdas + storage in between.
+      * Two empty "gutters" (LEFT_GUTTER_X and RIGHT_GUTTER_X) reserved
+        for back-edges. Any edge that needs to route around the main
+        content uses one of these gutters — and no node ever sits inside
+        a gutter, so the back-edges are physically incapable of
+        overlapping any box.
+      * The two cross-cluster back-edges (Submit→Worker async invoke,
+        Worker→Jobs progress write) use DIFFERENT gutters so they can't
+        touch each other either.
+      * L→R pipeline flow at the bottom is a single row: worker + four
+        stages in sequence, with athena → iceberg as the only downward
+        arrow.
     """
-    W, H = 2000, 1320
+    W, H = 2200, 1400
     d = Diagram("04-nlq-runtime", "NLQ runtime path (async)", W, H)
+
+    # ---- gutters (empty columns reserved for back-edges) ----
+    # Nothing is ever placed in x=0..GUTTER_L or x=W-GUTTER_R..W so the
+    # back-edge arrows can run through them without colliding with any box.
+    LEFT_GUTTER_X = 30
+    RIGHT_GUTTER_X = W - 30
 
     # ---- row anchors (top-down) ----
     R_USER = 60
-    R_ROUTE = 200
-    R_APIGW = 340
-    R_LAMBDAS = 500    # auth + submit
-    R_STORE = 660      # secrets + jobs bucket
-    R_STAGES = 1000    # horizontal worker pipeline (worker sits in this row)
-    R_ICEBERG = 1160
+    R_ROUTE = 220
+    R_APIGW = 380
+    R_LAMBDAS = 560    # auth + submit
+    R_STORE = 740      # secrets + jobs bucket
+    R_WORKER = 980     # worker + stages in one horizontal row
+    R_ICEBERG = 1180
 
-    # ---- column anchors (left cluster — submit side) ----
-    LEFT_CENTRE = 420
+    # ---- column anchors ----
+    C_AUTH = 200
+    AUTH_W = 240
+    C_SUBMIT = 760
+    SUBMIT_W = 380
+    C_STAGE_START = 100  # worker + stages start here
 
-    # ---- nodes: top half — submit + poll path ----
+    # ---- top cluster nodes ----
+    # User — centred above apigw
     d.nodes.append(Node("user", "End user",
-                        LEFT_CENTRE - 40, R_USER, 80, 80, actor()))
-    d.nodes.append(Node("r53", "Route 53\napi.nlq.demos.apps.equal.expert",
-                        LEFT_CENTRE - 160, R_ROUTE, 320, 80,
-                        aws_resource("route_53", "#8C4FFF")))
+                        C_SUBMIT + SUBMIT_W // 2 - 50, R_USER, 100, 90, actor()))
+
+    # Route 53
+    d.nodes.append(Node(
+        "r53", "Route 53\napi.nlq.demos.apps.equal.expert",
+        C_SUBMIT + SUBMIT_W // 2 - 180, R_ROUTE, 360, 90,
+        aws_resource("route_53", "#8C4FFF"),
+    ))
+
+    # API Gateway
     d.nodes.append(Node(
         "apigw",
-        "API Gateway v2\nPOST /nlq  +  GET /nlq/jobs/{id}",
-        LEFT_CENTRE - 200, R_APIGW, 400, 80,
+        "API Gateway v2 HTTP API\nPOST /nlq      GET /nlq/jobs/{id}",
+        C_SUBMIT + SUBMIT_W // 2 - 220, R_APIGW, 440, 100,
         aws_resource("api_gateway", "#FF4F8B"),
     ))
 
-    # Auth column — left of the main submit column
-    d.nodes.append(Node("auth", "Authoriser\nLambda",
-                        40, R_LAMBDAS, 220, 80,
-                        aws_resource("lambda", AWS_ORANGE)))
-    d.nodes.append(Node("secrets", "Secrets\nManager",
-                        40, R_STORE, 220, 80,
-                        aws_resource("secrets_manager", "#DD344C")))
-
-    # Submit/Status Lambda — main column
+    # Authoriser + Secrets — left column
     d.nodes.append(Node(
-        "submit",
-        "Submit / Status Lambda\n(handler.py)",
-        LEFT_CENTRE - 160, R_LAMBDAS, 320, 80,
+        "auth", "Authoriser Lambda",
+        C_AUTH, R_LAMBDAS, AUTH_W, 100,
         aws_resource("lambda", AWS_ORANGE),
     ))
-
-    # Jobs bucket — directly below submit
     d.nodes.append(Node(
-        "jobs",
-        "Jobs bucket\ns3://cinq-nlq-jobs\nTTL 1 day",
-        LEFT_CENTRE - 160, R_STORE, 320, 100,
+        "secrets", "Secrets Manager",
+        C_AUTH, R_STORE, AUTH_W, 100,
+        aws_resource("secrets_manager", "#DD344C"),
+    ))
+
+    # Submit/Status Lambda + Jobs bucket — centre column
+    d.nodes.append(Node(
+        "submit", "Submit / Status Lambda\n(handler.py)",
+        C_SUBMIT, R_LAMBDAS, SUBMIT_W, 100,
+        aws_resource("lambda", AWS_ORANGE),
+    ))
+    d.nodes.append(Node(
+        "jobs", "Jobs Bucket  (S3)\ncinq-nlq-jobs   |   TTL 1 day",
+        C_SUBMIT, R_STORE, SUBMIT_W, 110,
         aws_resource("simple_storage_service", "#7AA116"),
     ))
 
-    # ---- nodes: bottom half — worker pipeline ----
-    # Single horizontal row at y=R_STAGES so the L→R chain never doubles
-    # back on itself. Worker sits FIRST in the row.
-    worker_w = 260
-    stage_w = 220
-    stage_gap = 60
-    stage_h = 100
-    row_left = 60
+    # ---- bottom cluster: worker pipeline as a single L→R row ----
+    worker_w = 280
+    stage_w = 240
+    stage_gap = 50
+    stage_h = 120
     stage_positions = [
         ("worker",
          "NLQ Worker Lambda\n(worker.py)\ntimeout 5 min",
@@ -605,106 +678,123 @@ def diagram_nlq_runtime() -> Diagram:
          "Athena\nrun SELECT",
          stage_w, aws_resource("athena", "#8C4FFF")),
     ]
-    x_cursor = row_left
+    x_cursor = C_STAGE_START
     stage_x: dict[str, int] = {}
+    stage_w_map: dict[str, int] = {}
     for nid, label, w, style in stage_positions:
         stage_x[nid] = x_cursor
-        d.nodes.append(Node(nid, label, x_cursor, R_STAGES, w, stage_h, style))
+        stage_w_map[nid] = w
+        d.nodes.append(Node(nid, label, x_cursor, R_WORKER, w, stage_h, style))
         x_cursor += w + stage_gap
 
-    # Iceberg — below athena
+    # Iceberg — directly below athena
     athena_x = stage_x["athena"]
     d.nodes.append(Node(
-        "iceberg",
-        "Iceberg table\ncinq.operational",
-        athena_x, R_ICEBERG, stage_w, 80,
+        "iceberg", "Iceberg table\ncinq.operational",
+        athena_x, R_ICEBERG, stage_w, 100,
         aws_resource("simple_storage_service", "#7AA116"),
     ))
 
-    # ---- edges: top half — submit path ----
-    d.edges.append(Edge("e1", "user", "r53", exit=BOTTOM, entry=TOP))
-    d.edges.append(Edge("e2", "r53", "apigw", exit=BOTTOM, entry=TOP))
-
-    # API GW → Auth (down then left). Unique exit X (far left of apigw)
-    # and a high bus y so the line never meets apigw→submit.
-    d.edges.append(Edge(
-        "e3", "apigw", "auth", "authorise",
-        exit=(0.15, 1.0), entry=TOP,
-        waypoints=[(LEFT_CENTRE - 200 + 60, 450), (150, 450)],
-    ))
-    d.edges.append(Edge("e4", "auth", "secrets", "GetSecret",
+    # ---- edges: top cluster (all strictly downward) ----
+    d.edges.append(Edge("e1", "user", "r53", "HTTPS",
+                        exit=BOTTOM, entry=TOP))
+    d.edges.append(Edge("e2", "r53", "apigw", "alias",
                         exit=BOTTOM, entry=TOP))
 
-    # API GW → Submit (straight down via a distinct exit X)
+    # API Gateway → Authoriser (every request). Exit far-left of apigw,
+    # route down-left via a dedicated waypoint at y=R_APIGW+140 (above
+    # the Lambda row).
+    d.edges.append(Edge(
+        "e3", "apigw", "auth", "x-api-key",
+        exit=(0.15, 1.0), entry=TOP,
+        waypoints=[(C_AUTH + AUTH_W // 2, R_LAMBDAS - 40)],
+    ))
+    # Authoriser → Secrets
+    d.edges.append(Edge("e4", "auth", "secrets", "GetSecret",
+                        exit=BOTTOM, entry=TOP))
+    # API Gateway → Submit (straight down)
     d.edges.append(Edge(
         "e5", "apigw", "submit", "invoke",
-        exit=(0.6, 1.0), entry=TOP,
+        exit=(0.75, 1.0), entry=(0.75, 0.0),
     ))
-
-    # Submit → Jobs bucket (straight down from the LEFT half of submit)
+    # Submit → Jobs (straight down, left half)
     d.edges.append(Edge(
-        "e6", "submit", "jobs", "1. write init",
-        exit=(0.3, 1.0), entry=(0.3, 0.0),
+        "e6", "submit", "jobs", "write progress",
+        exit=(0.25, 1.0), entry=(0.25, 0.0),
     ))
-
-    # Jobs → Submit (the GET poll read path — RIGHT half of both nodes so
-    # it doesn't sit on top of the write arrow)
+    # Jobs → Submit (poll read, right half — far from the write arrow)
     d.edges.append(Edge(
-        "e7", "jobs", "submit", "3. GET poll",
-        exit=(0.7, 0.0), entry=(0.7, 1.0),
+        "e7", "jobs", "submit", "poll read",
+        exit=(0.75, 0.0), entry=(0.75, 1.0),
     ))
 
-    # ---- cross-half edges ----
-    # Submit async-invokes Worker. Goes down-and-left from submit
-    # BOTTOM-LEFT to worker TOP. Bus y=820 sits cleanly in the gap between
-    # the jobs bucket (bottom y=760) and the worker row (top y=1000).
-    submit_left_x = LEFT_CENTRE - 160
-    submit_w = 320
-    worker_top_x = stage_x["worker"] + worker_w // 2  # centre of worker top
-    d.edges.append(Edge(
-        "e8", "submit", "worker", "2. async invoke",
-        exit=(0.2, 1.0), entry=(0.5, 0.0),
-        waypoints=[
-            (submit_left_x + int(submit_w * 0.2), 820),
-            (worker_top_x, 820),
-        ],
-    ))
-
-    # Worker writes progress back to Jobs bucket. Goes up-and-right from
-    # worker TOP-RIGHT to jobs BOTTOM-RIGHT. Bus y=880 — 60 px below the
-    # async-invoke bus so the two never share a pixel. The horizontal
-    # segments are in completely different x ranges too.
-    worker_right_top_x = stage_x["worker"] + int(worker_w * 0.85)
-    jobs_right_bottom_x = submit_left_x + int(submit_w * 0.85)
-    d.edges.append(Edge(
-        "e9", "worker", "jobs", "writes progress after every stage",
-        exit=(0.85, 0.0), entry=(0.85, 1.0),
-        waypoints=[
-            (worker_right_top_x, 880),
-            (jobs_right_bottom_x, 880),
-        ],
-    ))
-
-    # ---- edges: bottom half — strict L→R worker pipeline ----
+    # ---- bottom cluster: L→R pipeline ----
     chain = ["worker", "titan", "s3v", "claude", "athena"]
     labels = ["1. embed", "2. retrieve", "3. generate", "4. query"]
     for i, (a, b, label) in enumerate(zip(chain, chain[1:], labels)):
-        d.edges.append(Edge(
-            f"p{i}", a, b, label,
-            exit=RIGHT, entry=LEFT,
-        ))
+        d.edges.append(Edge(f"p{i}", a, b, label,
+                            exit=RIGHT, entry=LEFT))
 
-    d.edges.append(Edge("e_iceberg", "athena", "iceberg", "INSERT / SELECT",
+    # Athena → Iceberg (straight down)
+    d.edges.append(Edge("e_iceberg", "athena", "iceberg", "SELECT",
                         exit=BOTTOM, entry=TOP))
+
+    # ---- cross-cluster back-edges, routed through the GUTTERS ----
+    # Rule: any edge that has to travel between the top cluster and the
+    # bottom cluster exits its source node, walks into a clear horizontal
+    # "gap row" (either above-auth or between-auth-and-secrets), then
+    # travels down through a column that contains NO nodes, and enters
+    # the target from the same clear side. The two back-edges use
+    # opposite gutters so they can't touch each other either.
+
+    # Clear Y gaps in the top cluster (any bus travelling horizontally
+    # across the top cluster must use one of these Ys):
+    BUS_Y_BETWEEN_LAMBDAS = R_LAMBDAS + 100 + 40   # between auth/submit bottom and secrets/jobs top
+    BUS_Y_MIDGAP = R_STORE + 110 + 65              # between jobs bottom and worker top
+
+    worker_left_x = stage_x["worker"]
+    worker_right_x = worker_left_x + worker_w
+
+    # (A) Submit → Worker async invoke — exits submit LEFT at its
+    # bottom-left corner, turns down into the gap Y between the lambdas
+    # and the stores, then tracks left along that gap past the
+    # authoriser, down the left gutter, and into the worker's LEFT edge.
+    d.edges.append(Edge(
+        "async_invoke", "submit", "worker", "async invoke",
+        exit=(0.0, 1.0), entry=(0.0, 0.5),
+        waypoints=[
+            (C_SUBMIT - 1, BUS_Y_BETWEEN_LAMBDAS),       # step into the gap row
+            (LEFT_GUTTER_X, BUS_Y_BETWEEN_LAMBDAS),       # travel left into the gutter
+            (LEFT_GUTTER_X, R_WORKER + stage_h // 2),     # drop down the left gutter
+        ],
+    ))
+
+    # (B) Worker → Jobs progress writes — exits worker TOP-RIGHT,
+    # steps up into the mid-gap row above the worker row, travels right
+    # into the right gutter, climbs the right gutter, then slides left
+    # along the between-lambdas gap row and into the jobs bucket's RIGHT
+    # edge. Uses OPPOSITE Xs from the async-invoke edge throughout.
+    jobs_right_x = C_SUBMIT + SUBMIT_W
+    d.edges.append(Edge(
+        "progress_write", "worker", "jobs",
+        "writes progress after every stage",
+        exit=(0.95, 0.0), entry=(1.0, 0.5),
+        waypoints=[
+            (worker_left_x + int(worker_w * 0.95), BUS_Y_MIDGAP),
+            (RIGHT_GUTTER_X, BUS_Y_MIDGAP),
+            (RIGHT_GUTTER_X, BUS_Y_BETWEEN_LAMBDAS),
+            (jobs_right_x + 20, BUS_Y_BETWEEN_LAMBDAS),
+        ],
+    ))
 
     # ---- groupings ----
     d.groups.append(Group(
-        "g_submit", "Submit + status (API Gateway bound, sub-second)",
-        10, R_APIGW - 40, 840, R_STORE + 140 - (R_APIGW - 40),
+        "g_submit", "Submit + Status  —  API Gateway-bound, sub-second",
+        70, R_APIGW - 40, W - 140, R_STORE + 140 - (R_APIGW - 40),
     ))
     d.groups.append(Group(
-        "g_worker", "Async worker (no 30s cap — runs up to 5 min)",
-        40, R_STAGES - 40, W - 80, R_ICEBERG + 100 - (R_STAGES - 40),
+        "g_worker", "Async Worker Pipeline  —  no 30s cap, runs up to 5 min",
+        70, R_WORKER - 40, W - 140, R_ICEBERG + 120 - (R_WORKER - 40),
     ))
 
     return d

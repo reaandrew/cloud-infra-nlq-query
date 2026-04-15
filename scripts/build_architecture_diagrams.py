@@ -301,8 +301,10 @@ def diagram_overview() -> Diagram:
     d.nodes.append(Node("secrets", "Secrets\nManager", AUTH_X, R_RESOURCES, 160, 80,
                         aws_resource("secrets_manager", "#DD344C")))
 
-    # API + NLQ Lambda + Stats Lambda
-    d.nodes.append(Node("nlq", "NLQ Lambda", API_X, R_LAMBDAS, 200, 80,
+    # API + NLQ Lambda — relabelled to reflect that it now dispatches
+    # submit/status requests and async-invokes a separate worker Lambda.
+    d.nodes.append(Node("nlq", "NLQ Lambdas\n(submit + worker)",
+                        API_X, R_LAMBDAS, 200, 80,
                         aws_resource("lambda", AWS_ORANGE)))
 
     # Backend row — Bedrock, S3 Vectors, Athena across the bottom
@@ -507,102 +509,203 @@ def diagram_rag_indexing() -> Diagram:
 
 
 def diagram_nlq_runtime() -> Diagram:
-    """Phase 3 — strict top-down. NLQ Lambda fans down into 4 stages."""
-    W, H = 1800, 1300
-    d = Diagram("04-nlq-runtime", "NLQ runtime path", W, H)
+    """Phase 3 — async NLQ runtime.
 
-    # Centre column for the user → API GW → Lambda chain
-    CENTRE = 800
+    Split cleanly into two halves so no two arrows ever share pixels:
 
-    d.nodes.append(Node("user", "End user", CENTRE - 40, 60, 80, 80, actor()))
+    UPPER HALF (x=0..900): the submit + status + polling path.
+      user → Route 53 → API Gateway → Submit/Status Lambda
+                                         │  (down to Jobs bucket)
+                                         │  (async invoke → Worker, right)
+      Auth branch goes LEFT from API Gateway, Secrets below Auth.
+
+    LOWER HALF (x=0..1920): the worker pipeline, a strict L→R chain:
+      Worker → Titan embed → S3 Vectors → Claude generate → Athena → Iceberg
+
+    The only cross-half edges are:
+      - Submit async-invokes Worker (one diagonal)
+      - Worker writes progress back to Jobs bucket (one diagonal)
+    Both go through y=780 — but in DIFFERENT y slots (760 vs 800)
+    and different x ranges, so they never touch.
+    """
+    W, H = 2000, 1320
+    d = Diagram("04-nlq-runtime", "NLQ runtime path (async)", W, H)
+
+    # ---- row anchors (top-down) ----
+    R_USER = 60
+    R_ROUTE = 200
+    R_APIGW = 340
+    R_LAMBDAS = 500    # auth + submit
+    R_STORE = 660      # secrets + jobs bucket
+    R_STAGES = 1000    # horizontal worker pipeline (worker sits in this row)
+    R_ICEBERG = 1160
+
+    # ---- column anchors (left cluster — submit side) ----
+    LEFT_CENTRE = 420
+
+    # ---- nodes: top half — submit + poll path ----
+    d.nodes.append(Node("user", "End user",
+                        LEFT_CENTRE - 40, R_USER, 80, 80, actor()))
     d.nodes.append(Node("r53", "Route 53\napi.nlq.demos.apps.equal.expert",
-                        CENTRE - 160, 220, 320, 80,
+                        LEFT_CENTRE - 160, R_ROUTE, 320, 80,
                         aws_resource("route_53", "#8C4FFF")))
-    d.nodes.append(Node("apigw", "API Gateway v2\nPOST /nlq",
-                        CENTRE - 140, 380, 280, 80,
-                        aws_resource("api_gateway", "#FF4F8B")))
+    d.nodes.append(Node(
+        "apigw",
+        "API Gateway v2\nPOST /nlq  +  GET /nlq/jobs/{id}",
+        LEFT_CENTRE - 200, R_APIGW, 400, 80,
+        aws_resource("api_gateway", "#FF4F8B"),
+    ))
 
-    # Auth path branches LEFT
+    # Auth column — left of the main submit column
     d.nodes.append(Node("auth", "Authoriser\nLambda",
-                        CENTRE - 480, 540, 200, 80,
+                        40, R_LAMBDAS, 220, 80,
                         aws_resource("lambda", AWS_ORANGE)))
     d.nodes.append(Node("secrets", "Secrets\nManager",
-                        CENTRE - 480, 700, 200, 80,
+                        40, R_STORE, 220, 80,
                         aws_resource("secrets_manager", "#DD344C")))
 
-    # NLQ Lambda continues straight down
-    d.nodes.append(Node("nlq", "NLQ Lambda\n(handler.py)",
-                        CENTRE - 140, 540, 280, 80,
-                        aws_resource("lambda", AWS_ORANGE)))
+    # Submit/Status Lambda — main column
+    d.nodes.append(Node(
+        "submit",
+        "Submit / Status Lambda\n(handler.py)",
+        LEFT_CENTRE - 160, R_LAMBDAS, 320, 80,
+        aws_resource("lambda", AWS_ORANGE),
+    ))
 
-    # Four stages spread across the bottom
-    STAGE_Y = 740
-    LABEL_Y = 940
-    SPACING = 360
-    LEFT_X = CENTRE - SPACING * 1.5
-    stages = [
-        ("titan", "Titan v2\nembed question",
-         LEFT_X + 0 * SPACING),
-        ("s3v", "S3 Vectors\nquery_vectors",
-         LEFT_X + 1 * SPACING),
-        ("claude", "Claude Sonnet 4.6\n(global profile)",
-         LEFT_X + 2 * SPACING),
-        ("athena", "Athena\nINSERT INTO",
-         LEFT_X + 3 * SPACING),
+    # Jobs bucket — directly below submit
+    d.nodes.append(Node(
+        "jobs",
+        "Jobs bucket\ns3://cinq-nlq-jobs\nTTL 1 day",
+        LEFT_CENTRE - 160, R_STORE, 320, 100,
+        aws_resource("simple_storage_service", "#7AA116"),
+    ))
+
+    # ---- nodes: bottom half — worker pipeline ----
+    # Single horizontal row at y=R_STAGES so the L→R chain never doubles
+    # back on itself. Worker sits FIRST in the row.
+    worker_w = 260
+    stage_w = 220
+    stage_gap = 60
+    stage_h = 100
+    row_left = 60
+    stage_positions = [
+        ("worker",
+         "NLQ Worker Lambda\n(worker.py)\ntimeout 5 min",
+         worker_w, aws_resource("lambda", AWS_ORANGE)),
+        ("titan",
+         "Titan v2\nembed question",
+         stage_w, aws_resource("sagemaker", "#01A88D")),
+        ("s3v",
+         "S3 Vectors\nretrieve schemas",
+         stage_w, aws_resource("simple_storage_service", "#01A88D")),
+        ("claude",
+         "Claude Sonnet 4.6\ngenerate SQL",
+         stage_w, aws_resource("sagemaker", "#01A88D")),
+        ("athena",
+         "Athena\nrun SELECT",
+         stage_w, aws_resource("athena", "#8C4FFF")),
     ]
-    stage_styles = [
-        aws_resource("sagemaker", "#01A88D"),
-        aws_resource("simple_storage_service", "#01A88D"),
-        aws_resource("sagemaker", "#01A88D"),
-        aws_resource("athena", "#8C4FFF"),
-    ]
-    for (nid, label, x), style in zip(stages, stage_styles):
-        d.nodes.append(Node(nid, label, int(x), STAGE_Y, 200, 80, style))
+    x_cursor = row_left
+    stage_x: dict[str, int] = {}
+    for nid, label, w, style in stage_positions:
+        stage_x[nid] = x_cursor
+        d.nodes.append(Node(nid, label, x_cursor, R_STAGES, w, stage_h, style))
+        x_cursor += w + stage_gap
 
-    # Iceberg sink
-    d.nodes.append(Node("iceberg", "Iceberg table\ncinq.operational",
-                        int(LEFT_X + 3 * SPACING), 1000, 200, 80,
-                        aws_resource("simple_storage_service", "#7AA116")))
+    # Iceberg — below athena
+    athena_x = stage_x["athena"]
+    d.nodes.append(Node(
+        "iceberg",
+        "Iceberg table\ncinq.operational",
+        athena_x, R_ICEBERG, stage_w, 80,
+        aws_resource("simple_storage_service", "#7AA116"),
+    ))
 
-    # ---- edges ----
+    # ---- edges: top half — submit path ----
     d.edges.append(Edge("e1", "user", "r53", exit=BOTTOM, entry=TOP))
     d.edges.append(Edge("e2", "r53", "apigw", exit=BOTTOM, entry=TOP))
 
-    # API GW → Auth (down then left)
-    d.edges.append(Edge("e3", "apigw", "auth", "1. authorise",
-                        exit=BOTTOM, entry=TOP,
-                        waypoints=[(CENTRE - 380, 500)]))
+    # API GW → Auth (down then left). Unique exit X (far left of apigw)
+    # and a high bus y so the line never meets apigw→submit.
+    d.edges.append(Edge(
+        "e3", "apigw", "auth", "authorise",
+        exit=(0.15, 1.0), entry=TOP,
+        waypoints=[(LEFT_CENTRE - 200 + 60, 450), (150, 450)],
+    ))
     d.edges.append(Edge("e4", "auth", "secrets", "GetSecret",
                         exit=BOTTOM, entry=TOP))
 
-    # API GW → NLQ Lambda
-    d.edges.append(Edge("e5", "apigw", "nlq", "2. invoke",
-                        exit=BOTTOM, entry=TOP))
+    # API GW → Submit (straight down via a distinct exit X)
+    d.edges.append(Edge(
+        "e5", "apigw", "submit", "invoke",
+        exit=(0.6, 1.0), entry=TOP,
+    ))
 
-    # NLQ Lambda → 4 stages. Each edge leaves the NLQ Lambda at a
-    # distinct exit-X position and uses a distinct horizontal bus Y,
-    # so no two edges ever overlap.
-    # NLQ Lambda is 280px wide; exits at 0.1, 0.37, 0.63, 0.9 of width.
-    exit_xs = [0.1, 0.37, 0.63, 0.9]
-    bus_ys = [660, 680, 700, 720]
-    for i, ((nid, _, x), ex, by) in enumerate(zip(stages, exit_xs, bus_ys)):
-        sx = int(x) + 100  # centre of stage shape
-        exit_abs_x = int(CENTRE - 140 + 280 * ex)
+    # Submit → Jobs bucket (straight down from the LEFT half of submit)
+    d.edges.append(Edge(
+        "e6", "submit", "jobs", "1. write init",
+        exit=(0.3, 1.0), entry=(0.3, 0.0),
+    ))
+
+    # Jobs → Submit (the GET poll read path — RIGHT half of both nodes so
+    # it doesn't sit on top of the write arrow)
+    d.edges.append(Edge(
+        "e7", "jobs", "submit", "3. GET poll",
+        exit=(0.7, 0.0), entry=(0.7, 1.0),
+    ))
+
+    # ---- cross-half edges ----
+    # Submit async-invokes Worker. Goes down-and-left from submit
+    # BOTTOM-LEFT to worker TOP. Bus y=820 sits cleanly in the gap between
+    # the jobs bucket (bottom y=760) and the worker row (top y=1000).
+    submit_left_x = LEFT_CENTRE - 160
+    submit_w = 320
+    worker_top_x = stage_x["worker"] + worker_w // 2  # centre of worker top
+    d.edges.append(Edge(
+        "e8", "submit", "worker", "2. async invoke",
+        exit=(0.2, 1.0), entry=(0.5, 0.0),
+        waypoints=[
+            (submit_left_x + int(submit_w * 0.2), 820),
+            (worker_top_x, 820),
+        ],
+    ))
+
+    # Worker writes progress back to Jobs bucket. Goes up-and-right from
+    # worker TOP-RIGHT to jobs BOTTOM-RIGHT. Bus y=880 — 60 px below the
+    # async-invoke bus so the two never share a pixel. The horizontal
+    # segments are in completely different x ranges too.
+    worker_right_top_x = stage_x["worker"] + int(worker_w * 0.85)
+    jobs_right_bottom_x = submit_left_x + int(submit_w * 0.85)
+    d.edges.append(Edge(
+        "e9", "worker", "jobs", "writes progress after every stage",
+        exit=(0.85, 0.0), entry=(0.85, 1.0),
+        waypoints=[
+            (worker_right_top_x, 880),
+            (jobs_right_bottom_x, 880),
+        ],
+    ))
+
+    # ---- edges: bottom half — strict L→R worker pipeline ----
+    chain = ["worker", "titan", "s3v", "claude", "athena"]
+    labels = ["1. embed", "2. retrieve", "3. generate", "4. query"]
+    for i, (a, b, label) in enumerate(zip(chain, chain[1:], labels)):
         d.edges.append(Edge(
-            f"s{i}", "nlq", nid, f"{i + 3}.",
-            exit=(ex, 1.0), entry=TOP,
-            waypoints=[(exit_abs_x, by), (sx, by)],
+            f"p{i}", a, b, label,
+            exit=RIGHT, entry=LEFT,
         ))
 
-    # Athena → Iceberg
-    d.edges.append(Edge("ei", "athena", "iceberg",
+    d.edges.append(Edge("e_iceberg", "athena", "iceberg", "INSERT / SELECT",
                         exit=BOTTOM, entry=TOP))
 
-    # Groupings
-    d.groups.append(Group("g_auth", "Authoriser",
-                          int(CENTRE - 520), 520, 280, 280))
-    d.groups.append(Group("g_stages", "RAG + SQL execution",
-                          int(LEFT_X - 40), 720, SPACING * 4 + 40, 380))
+    # ---- groupings ----
+    d.groups.append(Group(
+        "g_submit", "Submit + status (API Gateway bound, sub-second)",
+        10, R_APIGW - 40, 840, R_STORE + 140 - (R_APIGW - 40),
+    ))
+    d.groups.append(Group(
+        "g_worker", "Async worker (no 30s cap — runs up to 5 min)",
+        40, R_STAGES - 40, W - 80, R_ICEBERG + 100 - (R_STAGES - 40),
+    ))
 
     return d
 

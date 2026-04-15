@@ -85,7 +85,9 @@ export function HowThisWasMadeView() {
               generation</strong> layer that takes a natural-language
               question, finds the relevant resource type schemas in S3
               Vectors, and asks Claude to write a single Athena{" "}
-              <code>SELECT</code>
+              <code>SELECT</code> — wrapped in an async
+              submit-and-poll job pattern so long queries aren&apos;t
+              hostage to API Gateway&apos;s 30 second timeout
             </li>
             <li>
               a <strong className="font-bold">React SPA</strong> on
@@ -163,47 +165,60 @@ export function HowThisWasMadeView() {
 
       <Section
         number="03"
-        title="NLQ HTTP API"
+        title="Async NLQ HTTP API"
         image={`${ARCH}/04-nlq-runtime.png`}
-        alt="NLQ runtime path: API Gateway routes POST /nlq through a Lambda authoriser checking x-api-key against Secrets Manager, then to the NLQ Lambda which embeds the question, retrieves top-K schemas from S3 Vectors, asks Claude for SQL, and runs it through Athena"
+        alt="Async NLQ runtime path: POST /nlq hits API Gateway, an authoriser Lambda checks x-api-key against Secrets Manager, a submit Lambda writes an initial progress doc to an S3 jobs bucket and async-invokes a worker Lambda before returning 202 Accepted; the worker runs Titan embed, S3 Vectors retrieve, Claude generate, and Athena query in sequence while overwriting the jobs bucket after every stage; the browser polls GET /nlq/jobs/{id} which reads the same doc"
       >
         <p>
-          The runtime path is the choreography of every single question
-          you ask. The browser POSTs <code>/nlq</code> to API Gateway v2
-          with an <code>x-api-key</code> header. A REQUEST-type Lambda
-          authoriser checks that header against a Secrets Manager value
-          (cached in API Gateway for 5 minutes, so the secret isn&apos;t
-          fetched per request), then API Gateway forwards the payload to
-          the NLQ Lambda.
+          The runtime path is where the most interesting architectural
+          decision lives. The original version held one HTTP connection
+          open for the whole request — browser waits, Lambda runs embed
+          → retrieve → Claude → Athena, Lambda returns the rows, socket
+          closes. That worked up to about 15 seconds end to end, but
+          API&nbsp;Gateway&nbsp;v2&apos;s HTTP API has a <em>hard</em> 30
+          second integration timeout with no override, and as the data
+          grew some queries — 4-way VPC pivots, orphan-KMS anti-joins —
+          started spending 8 seconds in Claude <em>plus</em> 8 seconds
+          in Athena and shipping occasional 504s. A 504 on a perfectly
+          valid query is the worst possible demo failure: the user
+          thinks the engine is broken when it&apos;s actually fine.
         </p>
         <p>
-          Inside the Lambda the four stages you see in the progress panel
-          run in series:
+          The fix is the standard REST async-job pattern. <code>POST /nlq</code>
+          does as little as possible: the authoriser checks the key,
+          the submit Lambda validates the body, allocates a{" "}
+          <code>job_id</code>, writes an initial progress JSON to a new
+          jobs bucket, <code>lambda.invoke</code>s the worker with{" "}
+          <code>InvocationType=Event</code>, and returns <strong className="font-bold">
+          202 Accepted</strong> with <code>{'{job_id, status_url}'}</code>{" "}
+          in under half a second. No socket held open, no 30-second
+          ceiling in sight.
         </p>
-        <ol className="list-decimal pl-6 space-y-1">
-          <li>
-            Titan Text Embeddings v2 turns the question into a vector
-          </li>
-          <li>
-            <code>s3vectors.query_vectors</code> returns the top-K closest
-            resource type schemas
-          </li>
-          <li>
-            Claude Sonnet 4.6 (via the global cross-region inference
-            profile, for capacity) writes a single Athena{" "}
-            <code>SELECT</code> using the retrieved schemas + the table
-            description in the system prompt
-          </li>
-          <li>
-            The SQL is validated as SELECT-only, then run through{" "}
-            <code>athena.start_query_execution</code> against the Iceberg
-            table built in phase 1
-          </li>
-        </ol>
         <p>
-          The Lambda returns a single JSON object with the question, the
-          generated SQL, the retrieved schemas with their distances, the
-          rows from Athena, and per-stage timings.
+          The worker Lambda then runs the four stages it used to run
+          synchronously — Titan embed, <code>s3vectors.query_vectors</code>,
+          Claude Sonnet 4.6 via the global cross-region inference profile,
+          and <code>athena.start_query_execution</code> against the
+          Iceberg table from phase&nbsp;1 — except now with a 5-minute
+          timeout instead of 29 seconds, and <strong className="font-bold">
+          writing the jobs-bucket doc after every stage transition</strong>.
+          The doc carries per-stage <code>status</code>, server-stamped{" "}
+          <code>started_at</code> timestamps, real <code>ms</code> on
+          completion, and ultimately the full <code>result</code> block
+          (SQL, retrieved schemas, rows, Athena statistics, timings) or
+          an <code>error</code> block.
+        </p>
+        <p>
+          The browser polls <code>GET /nlq/jobs/{'{id}'}</code> every 800 ms.
+          That route goes through the same authoriser + submit Lambda;
+          the Lambda branches on method, reads the S3 doc, and returns
+          it verbatim. Polling stops when the status is terminal. The
+          sticky progress bar and the in-panel progress card are driven
+          by the same shared derivation that prefers real per-stage data
+          from the poll and fills the sub-poll gaps with a synthetic
+          timeline — so the first stage animates the moment the
+          202&nbsp;lands, sub-second stages still visibly move, and
+          terminal polls snap every bar to its real number.
         </p>
       </Section>
 

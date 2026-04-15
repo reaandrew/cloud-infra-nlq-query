@@ -1,7 +1,14 @@
-import { useState, useMemo, type FormEvent } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useState, useMemo, useRef, type FormEvent } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { AlertCircle, ChevronRight, Lock } from "lucide-react";
-import { api, ApiError, type NlqResponse, type RetrievedSchema } from "../lib/api";
+import {
+  api,
+  ApiError,
+  type JobResponse,
+  type NlqResponse,
+  type NlqResult,
+  type RetrievedSchema,
+} from "../lib/api";
 import { Button } from "../components/ui/Button";
 import { Badge } from "../components/ui/Badge";
 import { QueryProgress } from "../components/QueryProgress";
@@ -18,29 +25,75 @@ interface QueryViewProps {
 export function QueryView({ hasApiKey, onRequireApiKey }: QueryViewProps) {
   const [question, setQuestion] = useState("");
   const [activeCategory, setActiveCategory] = useState<string>(EXAMPLE_CATEGORIES[0].id);
+  const [jobId, setJobId] = useState<string | null>(null);
+  const submittedAtRef = useRef<number>(0);
+  const lastPollAtRef = useRef<number>(0);
 
-  const ask = useMutation<NlqResponse, ApiError, void>({
-    mutationFn: () => api.ask({ question: question.trim() }),
+  const submit = useMutation<{ job_id: string; status_url: string }, ApiError, string>({
+    mutationFn: (q: string) => api.submitJob({ question: q }),
+    onMutate: () => {
+      submittedAtRef.current = Date.now();
+      lastPollAtRef.current = Date.now();
+      setJobId(null);
+    },
+    onSuccess: (res) => {
+      setJobId(res.job_id);
+    },
   });
+
+  const job = useQuery<JobResponse, ApiError>({
+    queryKey: ["job", jobId],
+    queryFn: async () => {
+      const res = await api.getJob(jobId!);
+      lastPollAtRef.current = Date.now();
+      return res;
+    },
+    enabled: !!jobId,
+    refetchInterval: (q) => {
+      const s = q.state.data?.status;
+      if (s === "succeeded" || s === "failed") return false;
+      return 800;
+    },
+    staleTime: 0,
+    gcTime: 5 * 60 * 1000,
+    retry: 2,
+  });
+
+  // Unified query state
+  const jobData: JobResponse | null = job.data ?? null;
+  const isRunning =
+    submit.isPending ||
+    (!!jobId && (jobData?.status === "queued" || jobData?.status === "running" || !jobData));
+  const isDone = jobData?.status === "succeeded";
+  const hasError = submit.isError || jobData?.status === "failed";
+  const result: NlqResult | null = jobData?.status === "succeeded" ? jobData.result ?? null : null;
+
+  const submitError: ApiError | null = submit.error ?? null;
+  const jobError = jobData?.status === "failed" ? jobData.error ?? null : null;
+
+  const fireQuestion = (q: string) => {
+    submit.mutate(q);
+  };
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
-    if (!question.trim()) return;
+    const q = question.trim();
+    if (!q) return;
     if (!hasApiKey) {
       onRequireApiKey();
       return;
     }
-    ask.mutate();
+    fireQuestion(q);
   };
 
   const onPickExample = (ex: Example) => {
-    if (ask.isPending) return; // block clicks while a query is in flight
+    if (isRunning) return; // block clicks while a query is in flight
     setQuestion(ex.question);
     if (!hasApiKey) {
       onRequireApiKey();
       return;
     }
-    setTimeout(() => ask.mutate(), 0);
+    fireQuestion(ex.question);
   };
 
   const examplesForCategory = useMemo(
@@ -50,7 +103,12 @@ export function QueryView({ hasApiKey, onRequireApiKey }: QueryViewProps) {
 
   return (
     <>
-      <StickyProgressBar running={ask.isPending} />
+      <StickyProgressBar
+        running={isRunning}
+        job={jobData}
+        submittedAtMs={submittedAtRef.current}
+        lastPollAtMs={lastPollAtRef.current}
+      />
       <div className="max-w-[1100px] mx-auto px-4 md:px-8 py-16 space-y-16">
       {/* ---- heading ---- */}
       <div>
@@ -107,27 +165,28 @@ export function QueryView({ hasApiKey, onRequireApiKey }: QueryViewProps) {
               </span>
             )}
           </div>
-          <Button type="submit" disabled={!question.trim() || ask.isPending}>
-            {ask.isPending ? "Running…" : "Ask the question"}
+          <Button type="submit" disabled={!question.trim() || isRunning}>
+            {isRunning ? "Running…" : "Ask the question"}
           </Button>
         </div>
       </form>
 
       {/* ---- progress ---- */}
-      {(ask.isPending || ask.isSuccess || ask.isError) && (
+      {(isRunning || isDone || hasError) && (
         <QueryProgress
-          running={ask.isPending}
-          done={ask.isSuccess}
-          error={ask.isError}
-          timings={ask.data?.timings}
+          running={isRunning}
+          job={jobData}
+          submittedAtMs={submittedAtRef.current}
+          error={hasError}
         />
       )}
 
       {/* ---- error ---- */}
-      {ask.isError && ask.error && <ErrorBanner error={ask.error} />}
+      {submitError && <ErrorBanner error={submitError} />}
+      {jobError && <JobErrorBanner error={jobError} />}
 
       {/* ---- result ---- */}
-      {ask.isSuccess && ask.data && <ResultPanel data={ask.data} />}
+      {isDone && result && <ResultPanel data={result} />}
 
       {/* ---- examples (quick-start, grouped by complexity level) ----
        * Always rendered. Picking another example after a result kicks off a
@@ -153,11 +212,11 @@ export function QueryView({ hasApiKey, onRequireApiKey }: QueryViewProps) {
                 <button
                   role="tab"
                   aria-selected={activeCategory === c.id}
-                  disabled={ask.isPending}
+                  disabled={isRunning}
                   onClick={() => setActiveCategory(c.id)}
                   className={cn(
                     "px-6 py-4 text-[19px] font-bold relative flex items-center gap-3",
-                    ask.isPending && "opacity-50",
+                    isRunning && "opacity-50",
                     activeCategory === c.id
                       ? "text-[var(--color-text)]"
                       : "text-[var(--color-link)] hover:text-[var(--color-link-hover)]",
@@ -204,7 +263,7 @@ export function QueryView({ hasApiKey, onRequireApiKey }: QueryViewProps) {
               key={ex.id}
               example={ex}
               onClick={() => onPickExample(ex)}
-              disabled={ask.isPending}
+              disabled={isRunning}
             />
           ))}
         </div>
@@ -285,6 +344,42 @@ function ErrorBanner({ error }: { error: ApiError }) {
           {error.body?.sql && (
             <pre className="mt-3 text-[13px] font-mono bg-white border border-[var(--color-border)] p-3 overflow-x-auto">
               {error.body.sql}
+            </pre>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- job-failed banner ----------
+
+function JobErrorBanner({
+  error,
+}: {
+  error: NonNullable<JobResponse["error"]>;
+}) {
+  return (
+    <div className="border-l-[10px] border-[var(--color-red)] bg-[var(--color-red-bg)] p-5">
+      <div className="flex items-start gap-3">
+        <AlertCircle size={22} className="text-[var(--color-red)] shrink-0 mt-0.5" />
+        <div className="flex-1 min-w-0">
+          <h2 className="text-[24px] font-bold text-[var(--color-red)]">
+            {error.error || "Query failed"}
+          </h2>
+          {error.stage && (
+            <p className="mt-1 text-[14px] uppercase tracking-wider text-[var(--color-text-secondary)] font-bold">
+              Failed at stage: {error.stage}
+            </p>
+          )}
+          {error.detail && (
+            <p className="mt-1 text-[16px] text-[var(--color-text)]">
+              {error.detail}
+            </p>
+          )}
+          {error.sql && (
+            <pre className="mt-3 text-[13px] font-mono bg-white border border-[var(--color-border)] p-3 overflow-x-auto">
+              {error.sql}
             </pre>
           )}
         </div>

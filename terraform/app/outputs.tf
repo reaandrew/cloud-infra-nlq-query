@@ -28,6 +28,11 @@ output "athena_results_bucket" {
   value       = aws_s3_bucket.athena_results.bucket
 }
 
+output "nlq_jobs_bucket" {
+  description = "S3 bucket holding per-job progress + result documents for the async NLQ API"
+  value       = aws_s3_bucket.nlq_jobs.bucket
+}
+
 output "glue_database" {
   description = "Glue Data Catalog database holding the Iceberg table"
   value       = aws_glue_catalog_database.cinq.name

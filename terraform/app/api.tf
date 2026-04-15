@@ -42,6 +42,8 @@ resource "aws_secretsmanager_secret_version" "nlq_api_key" {
 resource "null_resource" "nlq_lambda_package" {
   triggers = {
     handler_sha   = filesha256("${path.module}/../../lambda/nlq/handler.py")
+    stages_sha    = filesha256("${path.module}/../../lambda/nlq/stages.py")
+    worker_sha    = filesha256("${path.module}/../../lambda/nlq/worker.py")
     packager_sha  = filesha256("${path.module}/../../scripts/package_nlq_lambda.sh")
     schemas_count = length(fileset("${path.module}/../../data/enriched_schemas", "*.md"))
   }
@@ -148,7 +150,14 @@ resource "aws_iam_role_policy" "nlq" {
           "${aws_s3_bucket.athena_results.arn}/*",
           aws_s3_bucket.config.arn,
           "${aws_s3_bucket.config.arn}/*",
+          aws_s3_bucket.nlq_jobs.arn,
+          "${aws_s3_bucket.nlq_jobs.arn}/*",
         ]
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["lambda:InvokeFunction"]
+        Resource = aws_lambda_function.nlq_worker.arn
       },
     ]
   })
@@ -180,12 +189,149 @@ resource "aws_lambda_function" "nlq" {
       SCHEMAS_VECTOR_INDEX  = var.schemas_vector_index
       ATHENA_RESULTS_BUCKET = aws_s3_bucket.athena_results.bucket
       ATHENA_WORKGROUP      = "primary"
+      JOBS_BUCKET           = aws_s3_bucket.nlq_jobs.bucket
+      WORKER_FUNCTION_ARN   = aws_lambda_function.nlq_worker.arn
     }
   }
 
   depends_on = [
     aws_iam_role_policy.nlq,
     aws_cloudwatch_log_group.nlq,
+  ]
+}
+
+# ---------- NLQ worker Lambda (async job runner) ----------
+#
+# Invoked via InvocationType=Event by the submit Lambda. Reads the initial
+# job doc from the jobs bucket, runs embed → retrieve → Claude → Athena,
+# overwrites the job doc after every stage transition. Not bound to API
+# Gateway so the timeout is a full 5 minutes.
+
+resource "aws_iam_role" "nlq_worker" {
+  name = "${var.app_name}-nlq-worker"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "lambda.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "nlq_worker" {
+  role = aws_iam_role.nlq_worker.id
+  name = "${var.app_name}-nlq-worker"
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents",
+        ]
+        Resource = "arn:aws:logs:${var.aws_region}:*:*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"]
+        Resource = [
+          "arn:aws:bedrock:*::foundation-model/*",
+          "arn:aws:bedrock:*:*:inference-profile/*",
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3vectors:QueryVectors",
+          "s3vectors:GetVectors",
+          "s3vectors:ListVectors",
+        ]
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "athena:StartQueryExecution",
+          "athena:GetQueryExecution",
+          "athena:GetQueryResults",
+          "athena:StopQueryExecution",
+          "athena:GetWorkGroup",
+        ]
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "glue:GetDatabase",
+          "glue:GetDatabases",
+          "glue:GetTable",
+          "glue:GetTables",
+          "glue:GetPartition",
+          "glue:GetPartitions",
+        ]
+        Resource = [
+          "arn:aws:glue:${var.aws_region}:*:catalog",
+          "arn:aws:glue:${var.aws_region}:*:database/${var.glue_database_name}",
+          "arn:aws:glue:${var.aws_region}:*:table/${var.glue_database_name}/*",
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:ListBucket",
+          "s3:GetBucketLocation",
+        ]
+        Resource = [
+          aws_s3_bucket.athena_results.arn,
+          "${aws_s3_bucket.athena_results.arn}/*",
+          aws_s3_bucket.config.arn,
+          "${aws_s3_bucket.config.arn}/*",
+          aws_s3_bucket.nlq_jobs.arn,
+          "${aws_s3_bucket.nlq_jobs.arn}/*",
+        ]
+      },
+    ]
+  })
+}
+
+resource "aws_cloudwatch_log_group" "nlq_worker" {
+  name              = "/aws/lambda/${var.app_name}-nlq-worker"
+  retention_in_days = 14
+}
+
+resource "aws_lambda_function" "nlq_worker" {
+  function_name    = "${var.app_name}-nlq-worker"
+  role             = aws_iam_role.nlq_worker.arn
+  runtime          = "python3.12"
+  handler          = "worker.worker_handler"
+  filename         = data.archive_file.nlq.output_path
+  source_code_hash = data.archive_file.nlq.output_base64sha256
+  memory_size      = 1024
+  timeout          = 300
+
+  environment {
+    variables = {
+      GLUE_DATABASE         = var.glue_database_name
+      ICEBERG_VIEW          = var.iceberg_view_name
+      EMBED_MODEL_ID        = var.embedding_model_id
+      CHAT_MODEL_ID         = var.chat_model_id
+      EMBED_DIMENSIONS      = tostring(var.embedding_dimensions)
+      SCHEMAS_VECTOR_BUCKET = var.schemas_vector_bucket
+      SCHEMAS_VECTOR_INDEX  = var.schemas_vector_index
+      ATHENA_RESULTS_BUCKET = aws_s3_bucket.athena_results.bucket
+      ATHENA_WORKGROUP      = "primary"
+      JOBS_BUCKET           = aws_s3_bucket.nlq_jobs.bucket
+    }
+  }
+
+  depends_on = [
+    aws_iam_role_policy.nlq_worker,
+    aws_cloudwatch_log_group.nlq_worker,
   ]
 }
 
@@ -451,6 +597,17 @@ resource "aws_apigatewayv2_authorizer" "nlq" {
 resource "aws_apigatewayv2_route" "nlq_post" {
   api_id             = aws_apigatewayv2_api.nlq.id
   route_key          = "POST /nlq"
+  target             = "integrations/${aws_apigatewayv2_integration.nlq.id}"
+  authorization_type = "CUSTOM"
+  authorizer_id      = aws_apigatewayv2_authorizer.nlq.id
+}
+
+# GET /nlq/jobs/{job_id} — polling endpoint for the async NLQ flow.
+# Same integration, same authoriser (single Lambda function dispatches on
+# method + path internally).
+resource "aws_apigatewayv2_route" "nlq_job_status" {
+  api_id             = aws_apigatewayv2_api.nlq.id
+  route_key          = "GET /nlq/jobs/{job_id}"
   target             = "integrations/${aws_apigatewayv2_integration.nlq.id}"
   authorization_type = "CUSTOM"
   authorizer_id      = aws_apigatewayv2_authorizer.nlq.id

@@ -107,6 +107,45 @@ resource "aws_s3_bucket_lifecycle_configuration" "athena_results" {
   }
 }
 
+# S3 bucket for NLQ async job progress docs. Each in-flight NLQ job gets
+# one JSON file at jobs/{job_id}.json that the worker Lambda overwrites
+# on every stage transition. The submit/status Lambda reads from this
+# bucket for GET /nlq/jobs/{id}. Lifecycle: 1-day expiry — jobs are
+# ephemeral, the client doesn't need history.
+resource "aws_s3_bucket" "nlq_jobs" {
+  bucket        = "${var.app_name}-nlq-jobs"
+  force_destroy = true
+}
+
+resource "aws_s3_bucket_public_access_block" "nlq_jobs" {
+  bucket                  = aws_s3_bucket.nlq_jobs.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "nlq_jobs" {
+  bucket = aws_s3_bucket.nlq_jobs.id
+
+  rule {
+    id     = "expire-jobs"
+    status = "Enabled"
+
+    filter {
+      prefix = ""
+    }
+
+    expiration {
+      days = 1
+    }
+
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 1
+    }
+  }
+}
+
 # VPC
 resource "aws_vpc" "main" {
   cidr_block           = var.vpc_cidr

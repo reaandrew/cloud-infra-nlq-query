@@ -21,8 +21,10 @@ echo "package-nlq: cleaning $build"
 rm -rf "$build"
 mkdir -p "$build"
 
-echo "package-nlq: copying handler"
+echo "package-nlq: copying handler + stages + worker"
 cp "$src/handler.py" "$build/handler.py"
+cp "$src/stages.py"  "$build/stages.py"
+cp "$src/worker.py"  "$build/worker.py"
 
 echo "package-nlq: copying $(ls "$enriched"/*.md | wc -l) enriched schema docs"
 mkdir -p "$build/enriched_schemas"

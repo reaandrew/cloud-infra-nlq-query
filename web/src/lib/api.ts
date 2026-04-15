@@ -71,10 +71,21 @@ export interface RetrievedSchema {
 export interface NlqRequest {
   question: string;
   top_k?: number;
-  dry_run?: boolean;
 }
 
-export interface NlqResponse {
+export type StageName = "embed" | "retrieve" | "generate" | "athena";
+export const STAGE_NAMES: StageName[] = ["embed", "retrieve", "generate", "athena"];
+
+export interface StageProgress {
+  status: "pending" | "running" | "done" | "failed";
+  started_at?: string;
+  ended_at?: string;
+  ms?: number;
+}
+
+export type JobStatus = "queued" | "running" | "succeeded" | "failed";
+
+export interface NlqResult {
   question: string;
   sql: string;
   retrieved_schemas: RetrievedSchema[];
@@ -89,7 +100,6 @@ export interface NlqResponse {
     query_queue_ms?: number | null;
     query_planning_ms?: number | null;
   };
-  dry_run?: boolean;
   timings: {
     embed_ms?: number;
     retrieve_ms?: number;
@@ -97,6 +107,32 @@ export interface NlqResponse {
     athena_ms?: number;
     total_ms: number;
   };
+}
+
+// Backwards-compat alias for components still typed on the old sync shape.
+export type NlqResponse = NlqResult;
+
+export interface JobResponse {
+  job_id: string;
+  status: JobStatus;
+  stage: StageName | null;
+  submitted_at: string;
+  updated_at: string;
+  question: string;
+  top_k: number;
+  stages: Record<StageName, StageProgress>;
+  result?: NlqResult;
+  error?: {
+    error: string;
+    detail?: string;
+    stage?: StageName | null;
+    sql?: string;
+  };
+}
+
+export interface SubmitJobResponse {
+  job_id: string;
+  status_url: string;
 }
 
 export interface ApiErrorBody {
@@ -159,10 +195,16 @@ export const api = {
   byAccount: (limit = 25) =>
     jsonFetch<{ items: AccountCount[]; limit: number }>(`/stats/by-account?limit=${limit}`),
   byRegion: () => jsonFetch<{ items: RegionCount[] }>("/stats/by-region"),
-  ask: (req: NlqRequest) =>
-    jsonFetch<NlqResponse>("/nlq", {
+
+  // Async NLQ: POST returns 202 with a job_id, GET polls for progress + result.
+  submitJob: (req: NlqRequest) =>
+    jsonFetch<SubmitJobResponse>("/nlq", {
       method: "POST",
       body: JSON.stringify(req),
+      authed: true,
+    }),
+  getJob: (jobId: string) =>
+    jsonFetch<JobResponse>(`/nlq/jobs/${encodeURIComponent(jobId)}`, {
       authed: true,
     }),
 };

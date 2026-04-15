@@ -1,5 +1,6 @@
 .PHONY: init deploy clean bootstrap fetch-schemas generate-mock unpack-mock \
         package-extract package-compact package-nlq package-lambdas test-pipeline \
+        generate-enterprise test-enterprise \
         enrich-schemas index-schemas nlq nlq-api api-key \
         spa-install spa-build spa-dev spa-sync spa-invalidate spa-deploy help
 
@@ -9,6 +10,7 @@ MOCK_BUCKET     ?= cinq-config-mock
 CONFIG_BUCKET   ?= cinq-config
 PROFILE         ?= compute
 ACCOUNTS        ?= 500
+COUNT           ?= 30
 VPCS            ?= 3
 SEED            ?= 42
 SCHEMAS_DIR     ?= data/config_resource_schemas
@@ -61,6 +63,7 @@ generate-mock: fetch-schemas
 		--profiles-file $(PROFILES_FILE) \
 		--profile $(PROFILE) \
 		--num-accounts $(ACCOUNTS) \
+		--count $(COUNT) \
 		--vpcs $(VPCS) \
 		--region $(AWS_REGION) \
 		--seed $(SEED)
@@ -80,6 +83,16 @@ bootstrap: generate-mock
 # drain the queue, then query Athena to prove the rows landed in the view.
 test-pipeline: generate-mock
 	./scripts/test_pipeline.sh $(TEST_TIMEOUT)
+
+# Fleet of large varied accounts — EC2-heavy plus RDS/Lambda/S3/DynamoDB/IAM/
+# KMS/ELB/Route53/CloudTrail/GuardDuty/Kinesis/Glue/EFS. The only knob you
+# should normally change is ACCOUNTS=N.
+# Defaults: 500 accounts, 800 resources each, 6 VPCs.
+generate-enterprise:
+	$(MAKE) generate-mock PROFILE=enterprise COUNT=800 VPCS=6 ACCOUNTS=$(ACCOUNTS)
+
+test-enterprise:
+	$(MAKE) test-pipeline PROFILE=enterprise COUNT=800 VPCS=6 ACCOUNTS=$(ACCOUNTS) TEST_TIMEOUT=$(TEST_TIMEOUT)
 
 # ---- Phase 2: schema RAG ----
 

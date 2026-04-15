@@ -194,7 +194,17 @@ def _gen_string(lower, original, ctx):
     if "email" in lower:
         return f"{app}@{env}.example.com"
     if "engine" in lower and "version" not in lower:
-        return random.choice(["postgres", "mysql", "aurora-postgresql", "aurora-mysql"])
+        return random.choice(["postgres", "mysql", "aurora-postgresql", "aurora-mysql", "mariadb", "sqlserver-se"])
+    if "engineversion" in lower or ("engine" in lower and "version" in lower):
+        return random.choice([
+            "15.4", "15.3", "14.10", "14.9", "13.13", "16.1",   # postgres
+            "8.0.35", "8.0.33", "5.7.44",                         # mysql
+            "10.11.6", "10.6.16",                                 # mariadb
+            "15.00.4345.5.v1", "14.00.3460.9.v1",                # sqlserver
+            "5.7.mysql_aurora.2.11.4", "8.0.mysql_aurora.3.05.2",
+        ])
+    if "platformversion" in lower or lower == "version":
+        return random.choice(["1.0", "1.1", "1.2", "2.0", "3.1"])
     if "runtime" in lower:
         return random.choice(["nodejs18.x", "nodejs20.x", "python3.11", "python3.12", "java17", "go1.x"])
     if "instancetype" in lower or "instanceclass" in lower:

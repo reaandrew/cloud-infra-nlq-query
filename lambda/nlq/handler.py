@@ -216,7 +216,9 @@ def validate_select_only(sql: str) -> None:
         raise ValueError("SQL contains a forbidden DDL/DML keyword")
 
 
-def run_athena(sql: str, timeout_s: int) -> tuple[str, list[str], list[list[str]]]:
+def run_athena(
+    sql: str, timeout_s: int
+) -> tuple[str, list[str], list[list[str]], dict[str, Any]]:
     qid = ATHENA.start_query_execution(
         QueryString=sql,
         QueryExecutionContext={"Database": DATABASE},
@@ -224,18 +226,29 @@ def run_athena(sql: str, timeout_s: int) -> tuple[str, list[str], list[list[str]
         WorkGroup=ATHENA_WORKGROUP,
     )["QueryExecutionId"]
     deadline = time.time() + timeout_s
+    qe: dict[str, Any] = {}
     while time.time() < deadline:
-        s = ATHENA.get_query_execution(QueryExecutionId=qid)["QueryExecution"]["Status"]
-        state = s["State"]
+        qe = ATHENA.get_query_execution(QueryExecutionId=qid)["QueryExecution"]
+        state = qe["Status"]["State"]
         if state == "SUCCEEDED":
             break
         if state in ("FAILED", "CANCELLED"):
             raise RuntimeError(
-                f"athena query {qid} {state}: {s.get('StateChangeReason', '<no reason>')}"
+                f"athena query {qid} {state}: "
+                f"{qe['Status'].get('StateChangeReason', '<no reason>')}"
             )
         time.sleep(1.0)
     else:
         raise RuntimeError(f"athena query {qid} timed out after {timeout_s}s")
+
+    stats_raw = qe.get("Statistics") or {}
+    stats = {
+        "data_scanned_bytes": stats_raw.get("DataScannedInBytes"),
+        "engine_execution_ms": stats_raw.get("EngineExecutionTimeInMillis"),
+        "total_execution_ms": stats_raw.get("TotalExecutionTimeInMillis"),
+        "query_queue_ms": stats_raw.get("QueryQueueTimeInMillis"),
+        "query_planning_ms": stats_raw.get("QueryPlanningTimeInMillis"),
+    }
 
     # Fetch all rows up to the row limit
     headers: list[str] = []
@@ -249,8 +262,8 @@ def run_athena(sql: str, timeout_s: int) -> tuple[str, list[str], list[list[str]
                 continue
             rows.append(cells)
             if len(rows) >= DEFAULT_RESULT_ROW_LIMIT:
-                return qid, headers, rows
-    return qid, headers, rows
+                return qid, headers, rows, stats
+    return qid, headers, rows, stats
 
 
 # --- HTTP API event handling ---
@@ -389,7 +402,7 @@ def handler(event, context):
     # 4. Athena
     t = time.time()
     try:
-        qid, headers, rows = run_athena(sql, DEFAULT_ATHENA_TIMEOUT)
+        qid, headers, rows, athena_stats = run_athena(sql, DEFAULT_ATHENA_TIMEOUT)
     except RuntimeError as exc:
         timings["athena_ms"] = round((time.time() - t) * 1000, 1)
         timings["total_ms"] = round((time.time() - t0) * 1000, 1)
@@ -413,5 +426,6 @@ def handler(event, context):
         "rows": structured_rows,
         "row_count": len(structured_rows),
         "athena_query_id": qid,
+        "athena_stats": athena_stats,
         "timings": timings,
     })

@@ -162,9 +162,20 @@ a {
   text-decoration: underline;
   text-decoration-thickness: max(1px, .0625rem);
   text-underline-offset: .1578em;
+  cursor: pointer;
 }
 a:hover { color: var(--color-link-hover); text-decoration-thickness: max(3px, .1875rem, .12em); }
 a:visited { color: var(--color-link-visited); }
+
+/* ---------- cursors on interactive elements ---------- */
+button:not(:disabled),
+[role="tab"]:not([aria-disabled="true"]),
+label[for] {
+  cursor: pointer;
+}
+button:disabled {
+  cursor: not-allowed;
+}
 
 /* ---------- nice scrollbars ---------- */
 *::-webkit-scrollbar { width: 12px; height: 12px; }

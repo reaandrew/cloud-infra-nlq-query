@@ -5,6 +5,7 @@ import { api, ApiError, type NlqResponse, type RetrievedSchema } from "../lib/ap
 import { Button } from "../components/ui/Button";
 import { Badge } from "../components/ui/Badge";
 import { QueryProgress } from "../components/QueryProgress";
+import { StickyProgressBar } from "../components/StickyProgressBar";
 import { fmtNumber } from "../lib/format";
 import { EXAMPLE_CATEGORIES, EXAMPLES, type Example } from "../data/examples";
 import { cn } from "../lib/cn";
@@ -33,6 +34,7 @@ export function QueryView({ hasApiKey, onRequireApiKey }: QueryViewProps) {
   };
 
   const onPickExample = (ex: Example) => {
+    if (ask.isPending) return; // block clicks while a query is in flight
     setQuestion(ex.question);
     if (!hasApiKey) {
       onRequireApiKey();
@@ -47,7 +49,9 @@ export function QueryView({ hasApiKey, onRequireApiKey }: QueryViewProps) {
   );
 
   return (
-    <div className="max-w-[1100px] mx-auto px-4 md:px-8 py-16 space-y-16">
+    <>
+      <StickyProgressBar running={ask.isPending} />
+      <div className="max-w-[1100px] mx-auto px-4 md:px-8 py-16 space-y-16">
       {/* ---- heading ---- */}
       <div>
         <h1 className="gds-l mb-4">Ask a question</h1>
@@ -149,9 +153,11 @@ export function QueryView({ hasApiKey, onRequireApiKey }: QueryViewProps) {
                 <button
                   role="tab"
                   aria-selected={activeCategory === c.id}
+                  disabled={ask.isPending}
                   onClick={() => setActiveCategory(c.id)}
                   className={cn(
                     "px-6 py-4 text-[19px] font-bold relative flex items-center gap-3",
+                    ask.isPending && "opacity-50",
                     activeCategory === c.id
                       ? "text-[var(--color-text)]"
                       : "text-[var(--color-link)] hover:text-[var(--color-link-hover)]",
@@ -194,11 +200,17 @@ export function QueryView({ hasApiKey, onRequireApiKey }: QueryViewProps) {
 
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-x-10 gap-y-12 pt-2">
           {examplesForCategory.map((ex) => (
-            <ExampleItem key={ex.id} example={ex} onClick={() => onPickExample(ex)} />
+            <ExampleItem
+              key={ex.id}
+              example={ex}
+              onClick={() => onPickExample(ex)}
+              disabled={ask.isPending}
+            />
           ))}
         </div>
       </section>
-    </div>
+      </div>
+    </>
   );
 }
 
@@ -207,22 +219,41 @@ export function QueryView({ hasApiKey, onRequireApiKey }: QueryViewProps) {
 function ExampleItem({
   example,
   onClick,
+  disabled,
 }: {
   example: Example;
   onClick: () => void;
+  disabled?: boolean;
 }) {
   return (
     <button
       onClick={onClick}
-      className="text-left block group"
+      disabled={disabled}
+      aria-disabled={disabled}
+      className={cn(
+        "text-left block group",
+        disabled && "opacity-50",
+      )}
     >
       <div className="flex items-start gap-2">
-        <div className="text-[19px] font-bold text-[var(--color-link)] group-hover:text-[var(--color-link-hover)] underline group-hover:decoration-[3px]">
+        <div
+          className={cn(
+            "text-[19px] font-bold underline",
+            disabled
+              ? "text-[var(--color-text-secondary)] no-underline"
+              : "text-[var(--color-link)] group-hover:text-[var(--color-link-hover)] group-hover:decoration-[3px]",
+          )}
+        >
           {example.title}
         </div>
         <ChevronRight
           size={18}
-          className="shrink-0 text-[var(--color-link)] group-hover:text-[var(--color-link-hover)] mt-1"
+          className={cn(
+            "shrink-0 mt-1",
+            disabled
+              ? "text-[var(--color-text-secondary)]"
+              : "text-[var(--color-link)] group-hover:text-[var(--color-link-hover)]",
+          )}
         />
       </div>
       <p className="mt-1 text-[15px] text-[var(--color-text-secondary)]">
@@ -259,6 +290,64 @@ function ErrorBanner({ error }: { error: ApiError }) {
         </div>
       </div>
     </div>
+  );
+}
+
+// ---------- result metadata strip ----------
+
+function fmtBytes(n?: number | null): string | null {
+  if (n == null) return null;
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
+  return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
+}
+
+function ResultMeta({ data }: { data: NlqResponse }) {
+  const stats = data.athena_stats;
+  const items: { label: string; value: string }[] = [
+    {
+      label: "Rows returned",
+      value: data.row_count ? fmtNumber(data.row_count) : "0",
+    },
+  ];
+  if (stats?.data_scanned_bytes != null) {
+    items.push({
+      label: "Data scanned",
+      value: fmtBytes(stats.data_scanned_bytes) ?? "—",
+    });
+  }
+  if (stats?.engine_execution_ms != null) {
+    items.push({
+      label: "Engine time",
+      value: `${(stats.engine_execution_ms / 1000).toFixed(2)} s`,
+    });
+  }
+  if (stats?.query_planning_ms != null) {
+    items.push({
+      label: "Planning",
+      value: `${stats.query_planning_ms} ms`,
+    });
+  }
+  if (stats?.query_queue_ms != null) {
+    items.push({
+      label: "Queue",
+      value: `${stats.query_queue_ms} ms`,
+    });
+  }
+  return (
+    <dl className="flex flex-wrap gap-x-10 gap-y-3 mt-0">
+      {items.map((it) => (
+        <div key={it.label} className="flex flex-col">
+          <dt className="text-[13px] uppercase tracking-wider font-bold text-[var(--color-text-secondary)]">
+            {it.label}
+          </dt>
+          <dd className="text-[19px] font-bold tabular-nums text-[var(--color-text)] mt-0.5">
+            {it.value}
+          </dd>
+        </div>
+      ))}
+    </dl>
   );
 }
 
@@ -326,9 +415,8 @@ function ResultPanel({ data }: { data: NlqResponse }) {
         <h2 id="results-heading" className="gds-m mb-2">
           Results
         </h2>
-        <p className="text-[16px] text-[var(--color-text-secondary)] mb-6">
-          {data.row_count ? `${fmtNumber(data.row_count)} rows returned.` : "No rows returned."}
-        </p>
+        <ResultMeta data={data} />
+        <div className="mb-6" />
         <div className="overflow-x-auto">
           {!headers.length ? (
             <p className="text-[16px] text-[var(--color-text-secondary)]">

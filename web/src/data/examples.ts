@@ -118,6 +118,15 @@ export const EXAMPLES: Example[] = [
     description:
       "A single field probe — configuration.runtime — with a straightforward histogram.",
   },
+  {
+    id: "json-rds-engines",
+    category: "json",
+    title: "RDS engines and versions",
+    question:
+      "for RDS database instances, show a breakdown of engine and engine version with the count of instances, ordered by count descending",
+    description:
+      "Two JSON probes — configuration.engine and configuration.engineVersion — grouped together. Classic fleet inventory question.",
+  },
 
   // ---- level 3: cross-resource ----
   {

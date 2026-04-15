@@ -47,6 +47,40 @@
         "AWS::Config::ConfigurationRecorder": 1
       }
     },
+    "enterprise": {
+      "description": "Large, varied org account: EC2/EBS heavy plus RDS, Lambda, S3, DynamoDB, Kinesis, IAM, KMS, ELB, Route53, CloudTrail, GuardDuty.",
+      "types": {
+        "AWS::EC2::Instance": 20,
+        "AWS::EC2::Volume": 30,
+        "AWS::EC2::NetworkInterface": 22,
+        "AWS::EC2::NatGateway": 3,
+        "AWS::EC2::RouteTable": 6,
+        "AWS::EC2::VPCEndpoint": 4,
+        "AWS::EC2::EIP": 5,
+        "AWS::ElasticLoadBalancingV2::LoadBalancer": 4,
+        "AWS::ElasticLoadBalancingV2::Listener": 6,
+        "AWS::RDS::DBInstance": 6,
+        "AWS::RDS::DBSnapshot": 8,
+        "AWS::RDS::DBSubnetGroup": 3,
+        "AWS::DynamoDB::Table": 8,
+        "AWS::EFS::FileSystem": 3,
+        "AWS::Lambda::Function": 18,
+        "AWS::S3::Bucket": 14,
+        "AWS::Kinesis::Stream": 3,
+        "AWS::KinesisFirehose::DeliveryStream": 2,
+        "AWS::Glue::Job": 3,
+        "AWS::KMS::Key": 8,
+        "AWS::SecretsManager::Secret": 10,
+        "AWS::IAM::Role": 14,
+        "AWS::IAM::Policy": 10,
+        "AWS::IAM::User": 4,
+        "AWS::IAM::Group": 3,
+        "AWS::Route53::HostedZone": 3,
+        "AWS::CloudTrail::Trail": 2,
+        "AWS::GuardDuty::Detector": 1,
+        "AWS::Config::ConfigurationRecorder": 1
+      }
+    },
     "networking": {
       "description": "Networking-focused: NAT gateways, route tables, endpoints, load balancers.",
       "types": {

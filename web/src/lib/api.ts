@@ -82,6 +82,13 @@ export interface NlqResponse {
   rows: Record<string, string>[];
   row_count: number;
   athena_query_id: string | null;
+  athena_stats?: {
+    data_scanned_bytes?: number | null;
+    engine_execution_ms?: number | null;
+    total_execution_ms?: number | null;
+    query_queue_ms?: number | null;
+    query_planning_ms?: number | null;
+  };
   dry_run?: boolean;
   timings: {
     embed_ms?: number;
